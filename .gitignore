@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.sites-runtime/
+.openai/
+.wrangler/
+.env*
+*.tsbuildinfo
+*.log
+.DS_Store
