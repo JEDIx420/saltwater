@@ -498,6 +498,150 @@ export class JungleAudio {
     });
   }
 
+  /** Infrasonic bull crocodile roar / territorial water-dance rumble */
+  playCrocRoar() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    // Sub-bass chest rumble (42Hz -> 58Hz -> 38Hz)
+    const subOsc = ctx.createOscillator();
+    const subGain = ctx.createGain();
+    subOsc.type = 'sawtooth';
+    subOsc.frequency.setValueAtTime(42, now);
+    subOsc.frequency.linearRampToValueAtTime(58, now + 0.35);
+    subOsc.frequency.exponentialRampToValueAtTime(36, now + 1.1);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(120, now);
+    filter.Q.setValueAtTime(4, now);
+
+    subGain.gain.setValueAtTime(0.01, now);
+    subGain.gain.linearRampToValueAtTime(0.65, now + 0.25);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+
+    subOsc.connect(filter);
+    filter.connect(subGain);
+    subGain.connect(this.sfxGain);
+    subOsc.start(now);
+    subOsc.stop(now + 1.25);
+
+    // Threatening hiss / water displacement noise
+    const bufSize = Math.floor(ctx.sampleRate * 0.8);
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.4;
+    const hiss = ctx.createBufferSource();
+    hiss.buffer = buf;
+    const hFilter = ctx.createBiquadFilter();
+    hFilter.type = 'bandpass';
+    hFilter.frequency.setValueAtTime(420, now);
+    hFilter.Q.setValueAtTime(2.5, now);
+    const hGain = ctx.createGain();
+    hGain.gain.setValueAtTime(0.01, now);
+    hGain.gain.linearRampToValueAtTime(0.3, now + 0.2);
+    hGain.gain.exponentialRampToValueAtTime(0.001, now + 0.85);
+    hiss.connect(hFilter);
+    hFilter.connect(hGain);
+    hGain.connect(this.sfxGain);
+    hiss.start(now);
+  }
+
+  /** Deep hippo territorial bellow */
+  playHippoGrunt() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(85, now);
+    osc.frequency.linearRampToValueAtTime(62, now + 0.4);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(220, now);
+
+    g.gain.setValueAtTime(0.55, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+
+    osc.connect(filter);
+    filter.connect(g);
+    g.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.7);
+  }
+
+  /** Shark sudden water whip / tail thrash */
+  playSharkThrash() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    const bufSize = Math.floor(ctx.sampleRate * 0.35);
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * Math.cos((i / bufSize) * Math.PI * 0.5);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(550, now);
+    filter.frequency.exponentialRampToValueAtTime(180, now + 0.35);
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.48, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+    src.connect(filter);
+    filter.connect(g);
+    g.connect(this.sfxGain);
+    src.start(now);
+  }
+
+  /** High delicate chirps from teeth-cleaning Egyptian plover */
+  playPloverChirp() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    [1950, 2350].forEach((f, idx) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, now + idx * 0.08);
+      osc.frequency.exponentialRampToValueAtTime(f * 1.15, now + idx * 0.08 + 0.04);
+      g.gain.setValueAtTime(0.12, now + idx * 0.08);
+      g.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.06);
+      osc.connect(g);
+      g.connect(this.sfxGain!);
+      osc.start(now + idx * 0.08);
+      osc.stop(now + idx * 0.08 + 0.07);
+    });
+  }
+
+  /** Explosive bite lunge rush */
+  playBiteLunge() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(90, now);
+    osc.frequency.exponentialRampToValueAtTime(35, now + 0.22);
+    g.gain.setValueAtTime(0.5, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+    osc.connect(g);
+    g.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.26);
+  }
+
   dispose() {
     this.isRunning = false;
     if (this.timerId !== null) {

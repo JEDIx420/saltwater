@@ -20,15 +20,16 @@ function segment(parent:T.Group,mat:T.Material,end:T.Vector3,radius:number){
 }
 export type CrocMotion={gripping?:boolean;rollTuck?:number;rollLift?:number;rollCoil?:number;diving?:boolean};
 
-export function crocodile(){
+export function crocodile(theme:'player'|'rival'='player'){
  const root=new T.Group(),body=new T.Group(),anatomy=new T.Group();
  // Roll around the spine, not a point on the ground.
  body.position.y=.34;anatomy.position.y=-.34;root.add(body);body.add(anatomy);
- const m=reptileMaterials(),geometry=profileGeometry(torso,32,4);
+ const m=reptileMaterials(theme),geometry=profileGeometry(torso,32,4);
  const colors=geometry.attributes.color,positions=geometry.attributes.position;
  for(let i=0;i<positions.count;i++){
   const z=positions.getZ(i),x=positions.getX(i),shape=surface(z),top=(positions.getY(i)-shape.y)/shape.h;
-  const c=new T.Color(0x8c9677).lerp(new T.Color(0xe0d5af),T.MathUtils.smoothstep(-top,0,.8));
+  const darkCol=new T.Color(theme==='rival'?0x4a5441:0x8c9677),lightCol=new T.Color(theme==='rival'?0xa39d7b:0xe0d5af);
+  const c=darkCol.lerp(lightCol,T.MathUtils.smoothstep(-top,0,.8));
   const mottling=.87+.1*Math.sin(z*13+x*18)*Math.sin(z*4-x*23);
   c.multiplyScalar(mottling);colors.setXYZ(i,c.r,c.g,c.b);
  }
@@ -126,7 +127,8 @@ export function crocodile(){
     digits[i].forEach(d=>d.rotation.x=waterBlend*(.065+stroke*.06)*(1-burst)*(1-tuck)+lift*.08*move*(1-waterBlend));
    });
    // A grip holds the jaws shut through the whole roll, rather than reopening on a timer.
-   jaw.rotation.x=extra.gripping?-.035:-strike*.62-(rest?.15:0);skin.skeleton.update();
+   // Basking opens the mouth wide for cooling and symbiosis with teeth-cleaning birds.
+   jaw.rotation.x=extra.gripping?-.035:-strike*.62-(rest?.46:0);skin.skeleton.update();
   }
  };
  return api;
