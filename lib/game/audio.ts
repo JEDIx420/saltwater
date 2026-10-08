@@ -1,0 +1,510 @@
+/**
+ * Procedural Web Audio Sound Engine for SALTWATER.
+ * Synthesizes dynamic jungle music, ambient wildlife, and visceral physical SFX.
+ * Fully offline, zero external asset downloads.
+ */
+
+export class JungleAudio {
+  private ctx: AudioContext | null = null;
+  private masterGain: GainNode | null = null;
+  private musicGain: GainNode | null = null;
+  private sfxGain: GainNode | null = null;
+  private underwaterFilter: BiquadFilterNode | null = null;
+  private ambientNoiseGain: GainNode | null = null;
+  private cicadaGain: GainNode | null = null;
+
+  private isMuted = false;
+  private isRunning = false;
+  private tempo = 84; // BPM
+  private step = 0;
+  private nextNoteTime = 0;
+  private timerId: number | null = null;
+
+  // Music state: 'calm' | 'stalk' | 'hunt' | 'roll'
+  private state: 'calm' | 'stalk' | 'hunt' | 'roll' = 'calm';
+  private underwater = false;
+
+  // D minor pentatonic scale frequencies (D3, F3, G3, A3, C4, D4, F4, A4)
+  private readonly scale = [146.83, 174.61, 196.0, 220.0, 261.63, 293.66, 349.23, 440.0];
+
+  init() {
+    if (this.ctx || typeof window === 'undefined') return;
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+
+    try {
+      this.ctx = new AudioCtx();
+      const ctx = this.ctx;
+
+      // Master output chain with underwater biquad low-pass filter
+      this.masterGain = ctx.createGain();
+      this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : 0.85, ctx.currentTime);
+
+      this.underwaterFilter = ctx.createBiquadFilter();
+      this.underwaterFilter.type = 'lowpass';
+      this.underwaterFilter.frequency.setValueAtTime(20000, ctx.currentTime);
+      this.underwaterFilter.Q.setValueAtTime(1, ctx.currentTime);
+
+      // Sub-buses
+      this.musicGain = ctx.createGain();
+      this.musicGain.gain.setValueAtTime(0.42, ctx.currentTime);
+
+      this.sfxGain = ctx.createGain();
+      this.sfxGain.gain.setValueAtTime(0.65, ctx.currentTime);
+
+      this.musicGain.connect(this.underwaterFilter);
+      this.sfxGain.connect(this.underwaterFilter);
+      this.underwaterFilter.connect(this.masterGain);
+      this.masterGain.connect(ctx.destination);
+
+      this.setupAmbience();
+      this.startMusicLoop();
+    } catch (e) {
+      console.warn('Web Audio initialization error:', e);
+    }
+  }
+
+  resume(): Promise<void> {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      return this.ctx.resume();
+    }
+    return Promise.resolve();
+  }
+
+  setMuted(muted: boolean) {
+    this.isMuted = muted;
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.85, this.ctx.currentTime, 0.05);
+    }
+  }
+
+  setUnderwater(submerged: boolean) {
+    this.underwater = submerged;
+    if (!this.underwaterFilter || !this.ctx) return;
+    const targetFreq = submerged ? 320 : 20000;
+    this.underwaterFilter.frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.15);
+  }
+
+  setIntensity(state: 'calm' | 'stalk' | 'hunt' | 'roll') {
+    this.state = state;
+  }
+
+  // --- AMBIENCE GENERATION (River Wind + Rainforest Cicadas) ---
+  private setupAmbience() {
+    if (!this.ctx || !this.musicGain) return;
+    const ctx = this.ctx;
+
+    // 1. River/Wetland Brown-ish Wind Noise
+    const bufSize = ctx.sampleRate * 3;
+    const buffer = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < bufSize; i++) {
+      const white = Math.random() * 2 - 1;
+      last = (last + 0.025 * white) / 1.025;
+      data[i] = last * 2.8;
+    }
+    const noiseSrc = ctx.createBufferSource();
+    noiseSrc.buffer = buffer;
+    noiseSrc.loop = true;
+
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = 'lowpass';
+    noiseFilter.frequency.value = 540;
+
+    this.ambientNoiseGain = ctx.createGain();
+    this.ambientNoiseGain.gain.value = 0.14;
+
+    noiseSrc.connect(noiseFilter);
+    noiseFilter.connect(this.ambientNoiseGain);
+    this.ambientNoiseGain.connect(this.musicGain);
+    noiseSrc.start();
+
+    // 2. High-frequency Rainforest Cicadas / Frogs
+    const cicadaBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    const cData = cicadaBuf.getChannelData(0);
+    for (let i = 0; i < cData.length; i++) {
+      cData[i] = (Math.random() * 2 - 1) * Math.sin(i * 0.04);
+    }
+    const cicadaSrc = ctx.createBufferSource();
+    cicadaSrc.buffer = cicadaBuf;
+    cicadaSrc.loop = true;
+
+    const cicadaFilter = ctx.createBiquadFilter();
+    cicadaFilter.type = 'bandpass';
+    cicadaFilter.frequency.value = 5200;
+    cicadaFilter.Q.value = 5;
+
+    this.cicadaGain = ctx.createGain();
+    this.cicadaGain.gain.value = 0.035;
+
+    cicadaSrc.connect(cicadaFilter);
+    cicadaFilter.connect(this.cicadaGain);
+    this.cicadaGain.connect(this.musicGain);
+    cicadaSrc.start();
+  }
+
+  // --- JUNGLE MUSIC SEQUENCER ---
+  private startMusicLoop() {
+    if (!this.ctx) return;
+    this.isRunning = true;
+    this.nextNoteTime = this.ctx.currentTime + 0.1;
+    this.step = 0;
+
+    const schedule = () => {
+      if (!this.isRunning || !this.ctx) return;
+      while (this.nextNoteTime < this.ctx.currentTime + 0.2) {
+        this.playStep(this.step, this.nextNoteTime);
+        const secondsPerBeat = 60.0 / this.tempo;
+        this.nextNoteTime += 0.25 * secondsPerBeat; // 16th notes
+        this.step = (this.step + 1) % 32;
+      }
+      this.timerId = window.setTimeout(schedule, 45);
+    };
+    schedule();
+  }
+
+  private playStep(step: number, time: number) {
+    if (!this.ctx || !this.musicGain) return;
+
+    const isRoll = this.state === 'roll';
+    const isHunt = this.state === 'hunt';
+    const isStalk = this.state === 'stalk';
+
+    // 1. Tribal Log Drum / Deep Tom (on downbeats & dynamic accents)
+    if (isRoll) {
+      if (step % 2 === 0) this.playLogDrum(time, 85, 0.28);
+      if (step % 4 === 3) this.playLogDrum(time, 130, 0.22);
+    } else if (isHunt) {
+      if (step % 4 === 0) this.playLogDrum(time, 90, 0.25);
+      if (step === 10 || step === 26) this.playLogDrum(time, 115, 0.18);
+    } else if (isStalk) {
+      // Subdued tension pulse
+      if (step % 8 === 0) this.playLogDrum(time, 65, 0.18);
+    } else {
+      // Calm exploration beat
+      if (step === 0 || step === 14) this.playLogDrum(time, 85, 0.18);
+      if (step === 20) this.playLogDrum(time, 105, 0.14);
+    }
+
+    // 2. Bamboo / Woodblock Percussion
+    if (isRoll) {
+      if (step % 2 === 1) this.playWoodblock(time, 920, 0.16);
+    } else if (!isStalk && (step === 4 || step === 12 || step === 18 || step === 28)) {
+      this.playWoodblock(time, 780 + (step % 3) * 120, 0.1);
+    }
+
+    // 3. Shaker / Leaf Rustle
+    if (!isStalk && step % 2 === 0) {
+      this.playShaker(time, isRoll ? 0.08 : 0.035);
+    }
+
+    // 4. Melodic Kalimba / Marimba (Dorian / Minor Pentatonic)
+    if (!isRoll && !isStalk) {
+      // Atmospheric melodic notes on selected steps
+      const melodySteps = [0, 6, 12, 16, 22, 26];
+      if (melodySteps.includes(step) && Math.random() > 0.15) {
+        const noteIdx = Math.floor(Math.random() * this.scale.length);
+        const freq = this.scale[noteIdx];
+        this.playKalimba(time, freq, 0.14);
+      }
+    } else if (isStalk && step === 0 && Math.random() > 0.4) {
+      // Sparse low drone note in stalking mode
+      this.playKalimba(time, this.scale[0] * 0.5, 0.12);
+    }
+  }
+
+  // --- SYNTHESIZED INSTRUMENTS ---
+  private playLogDrum(time: number, startFreq: number, gain: number) {
+    if (!this.ctx || !this.musicGain) return;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+
+    osc.frequency.setValueAtTime(startFreq * 1.5, time);
+    osc.frequency.exponentialRampToValueAtTime(45, time + 0.16);
+
+    g.gain.setValueAtTime(gain, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
+
+    osc.connect(g);
+    g.connect(this.musicGain);
+    osc.start(time);
+    osc.stop(time + 0.2);
+  }
+
+  private playWoodblock(time: number, freq: number, gain: number) {
+    if (!this.ctx || !this.musicGain) return;
+    const osc = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const g = this.ctx.createGain();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, time);
+
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(freq, time);
+    filter.Q.value = 6;
+
+    g.gain.setValueAtTime(gain, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+
+    osc.connect(filter);
+    filter.connect(g);
+    g.connect(this.musicGain);
+    osc.start(time);
+    osc.stop(time + 0.09);
+  }
+
+  private playShaker(time: number, gain: number) {
+    if (!this.ctx || !this.musicGain) return;
+    const bufferSize = this.ctx.sampleRate * 0.05;
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.setValueAtTime(4000, time);
+
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(gain, time);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.045);
+
+    noise.connect(filter);
+    filter.connect(g);
+    g.connect(this.musicGain);
+    noise.start(time);
+  }
+
+  private playKalimba(time: number, freq: number, gain: number) {
+    if (!this.ctx || !this.musicGain) return;
+    const osc = this.ctx.createOscillator();
+    const osc2 = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, time);
+
+    // Subtle metallic overtone
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(freq * 2.76, time);
+
+    g.gain.setValueAtTime(gain, time);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.65);
+
+    osc.connect(g);
+    osc2.connect(g);
+    g.connect(this.musicGain);
+    osc.start(time);
+    osc2.start(time);
+    osc.stop(time + 0.7);
+    osc2.stop(time + 0.7);
+  }
+
+  // --- VISCERAL SOUND EFFECTS (SFX) ---
+
+  /** Violent snap with bone crunch and water slap */
+  playBite() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    // 1. Jaw impact snap (sharp click)
+    const snap = ctx.createOscillator();
+    const snapGain = ctx.createGain();
+    snap.type = 'triangle';
+    snap.frequency.setValueAtTime(750, now);
+    snap.frequency.exponentialRampToValueAtTime(80, now + 0.12);
+    snapGain.gain.setValueAtTime(0.65, now);
+    snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    snap.connect(snapGain);
+    snapGain.connect(this.sfxGain);
+    snap.start(now);
+    snap.stop(now + 0.15);
+
+    // 2. Bone crunch / teeth collision noise
+    const bufSize = Math.floor(ctx.sampleRate * 0.15);
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.035));
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1400, now);
+    filter.Q.value = 3;
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.5, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+    noise.start(now);
+  }
+
+  /** Churning water vortex, foam turbulence, and heavy rotational roll thrash */
+  playRollThrash() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    // Low rotational sub rumble
+    const sub = ctx.createOscillator();
+    const subGain = ctx.createGain();
+    sub.type = 'sawtooth';
+    sub.frequency.setValueAtTime(45, now);
+    sub.frequency.linearRampToValueAtTime(72, now + 0.35);
+    sub.frequency.linearRampToValueAtTime(38, now + 0.7);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 180;
+
+    subGain.gain.setValueAtTime(0.5, now);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.75);
+
+    sub.connect(filter);
+    filter.connect(subGain);
+    subGain.connect(this.sfxGain);
+    sub.start(now);
+    sub.stop(now + 0.8);
+
+    // Water thrash turbulence
+    const bufSize = Math.floor(ctx.sampleRate * 0.6);
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.sin(i * 0.015);
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    const nFilter = ctx.createBiquadFilter();
+    nFilter.type = 'lowpass';
+    nFilter.frequency.setValueAtTime(650, now);
+    nFilter.frequency.exponentialRampToValueAtTime(240, now + 0.6);
+
+    const nGain = ctx.createGain();
+    nGain.gain.setValueAtTime(0.42, now);
+    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+
+    noise.connect(nFilter);
+    nFilter.connect(nGain);
+    nGain.connect(this.sfxGain);
+    noise.start(now);
+  }
+
+  /** Wet tearing and feeding gulp */
+  playFeed() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(190, now);
+    osc.frequency.exponentialRampToValueAtTime(95, now + 0.28);
+    g.gain.setValueAtTime(0.4, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+    osc.connect(g);
+    g.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.32);
+  }
+
+  /** Buffalo distress roar/grunt when grabbed */
+  playBuffaloGrunt() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(115, now);
+    osc.frequency.exponentialRampToValueAtTime(60, now + 0.45);
+
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(340, now);
+    filter.Q.value = 4;
+
+    g.gain.setValueAtTime(0.48, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+    osc.connect(filter);
+    filter.connect(g);
+    g.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.55);
+  }
+
+  /** Water splash when bursting, lunging, or swimming fast */
+  playSplash() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    const bufSize = Math.floor(ctx.sampleRate * 0.25);
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / bufSize);
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(800, now);
+    filter.Q.value = 2;
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.35, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+
+    noise.connect(filter);
+    filter.connect(g);
+    g.connect(this.sfxGain);
+    noise.start(now);
+  }
+
+  /** Gentle sun-warmed resonant tone when basking on the riverbank */
+  playBaskWarmth() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    [220, 277.18, 329.63].forEach((f, idx) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, now + idx * 0.06);
+      g.gain.setValueAtTime(0.08, now + idx * 0.06);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+      osc.connect(g);
+      g.connect(this.sfxGain!);
+      osc.start(now + idx * 0.06);
+      osc.stop(now + 0.95);
+    });
+  }
+
+  dispose() {
+    this.isRunning = false;
+    if (this.timerId !== null) {
+      clearTimeout(this.timerId);
+      this.timerId = null;
+    }
+    this.ctx?.close().catch(() => {});
+    this.ctx = null;
+  }
+}

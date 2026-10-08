@@ -6,6 +6,7 @@ import {ROLL_DURATION,rollPose} from './motion';
 import {SoftwareRenderer} from './software-renderer';
 import {angleDelta,joystickHeading,approach,clamp,type Joystick} from './input';
 import {readSave,writeSave,type ExpeditionSave} from './storage';
+import {JungleAudio} from './audio';
 export type Snapshot={health:number;hunger:number;stamina:number;air:number;warmth:number;mode:string;biome:string;speed:number;depth:number;kills:number;fishCaught:number;buffaloCaught:number;growth:number;distance:number;regions:number;landmarks:string[];elapsed:number;time:string;heading:number;fps:number;message:string;target:string;canBite:boolean;awareness:number;grip:number;meal:boolean;basking:boolean;dead:boolean;started:boolean;paused:boolean;x:number;z:number;drawCalls:number;renderer:string;waypoint:string;waypointDistance:number;waypointBearing:number;canContinue:boolean;feeding:boolean;rolling:boolean;quality:string};
 export const initial:Snapshot={health:100,hunger:70,stamina:100,air:100,warmth:72,mode:'SURFACE',biome:'MANGROVE REACH',speed:0,depth:0,kills:0,fishCaught:0,buffaloCaught:0,growth:0,distance:0,regions:1,landmarks:[],elapsed:0,time:'16:42',heading:0,fps:0,message:'The estuary is yours.',target:'',canBite:false,awareness:0,grip:0,meal:false,basking:false,dead:false,started:false,paused:false,x:0,z:-38,drawCalls:0,renderer:'WebGL',waypoint:'',waypointDistance:0,waypointBearing:0,canContinue:false,feeding:false,rolling:false,quality:'Balanced'};
 export type Animal={root:T.Group;kind:'fish'|'crab'|'buffalo';alive:boolean;hp:number;home:T.Vector3;angle:number;phase:number;respawn:number;flee:number;awareness:number;velocity:number;servings:number};
@@ -13,7 +14,7 @@ export class Engine{
  scene=new T.Scene();camera=new T.PerspectiveCamera(55,1,.1,1100);renderer:T.WebGLRenderer|SoftwareRenderer;state:Snapshot={...initial,landmarks:[]};croc=crocodile();world:ReturnType<typeof makeWorld>;animals:Animal[]=[];
  keys=new Set<string>();touch:{joystick:Joystick;sprint:boolean;stalk:boolean}={joystick:{x:0,y:0},sprint:false,stalk:false};yaw=.42;pitch=.33;zoom=9;sensitivity=1;diving=false;muted=false;quality=2;started=false;paused=false;dead=false;disposed=false;
  private frame=0;private time=0;private ambientTime=0;private last=0;private accumulator=0;private speed=0;private turnAmount=0;private biteTimer=0;private attackCooldown=0;private rollTimer=0;private rollVictim:Animal|null=null;private rollSplash=0;private feedingTimer=0;private messageTimer=5;private damageCooldown=0;private regions=new Set(['MANGROVE REACH']);private uiTimer=0;private fpsSamples:number[]=[];private cameraPointer:number|null=null;private oldX=0;private oldY=0;private pointerStartX=0;private pointerStartY=0;private pointerStartTime=0;private pointerButton=0;private cameraIdle=0;private grabbed:Animal|null=null;private grip=0;private basking=false;private birds:{root:T.Group;angle:number;radius:number;y:number;speed:number}[]=[];
- private particles:{mesh:T.Mesh;life:number;max:number;velocity?:T.Vector3}[]=[];private audio:AudioContext|null=null;private ambience:GainNode|null=null;private audioNodes:AudioNode[]=[];private audioSources:AudioScheduledSourceNode[]=[];private sun:T.DirectionalLight;private waypointId='';private autoQuality=true;private slowFrames=0;private wakeTimer=0;private saved:ExpeditionSave|null=null;
+ private particles:{mesh:T.Mesh;life:number;max:number;velocity?:T.Vector3}[]=[];private audio:JungleAudio|null=null;private sun:T.DirectionalLight;private waypointId='';private autoQuality=true;private slowFrames=0;private wakeTimer=0;private saved:ExpeditionSave|null=null;
  constructor(private container:HTMLElement,private map:HTMLCanvasElement,private onUpdate:(s:Snapshot)=>void,private onPause:(p:boolean)=>void){
   try{this.renderer=new T.WebGLRenderer({antialias:true,powerPreference:'high-performance'});}catch{this.renderer=new SoftwareRenderer()}
   const mobile=matchMedia('(pointer:coarse)').matches;
@@ -49,7 +50,7 @@ export class Engine{
   const root=kind==='fish'?fish(index%3):kind==='crab'?crab():buffalo();const y=kind==='fish'?Math.max(heightAt(x,z)+.5,-.82-rng()*.5):heightAt(x,z);
   root.position.set(x,y,z);root.rotation.y=rng()*Math.PI*2;this.scene.add(root);this.animals.push({root,kind,alive:true,hp:kind==='buffalo'?3:1,home:root.position.clone(),angle:root.rotation.y+Math.PI,phase:rng()*8,respawn:0,flee:0,awareness:0,velocity:0,servings:0});
  }
- start(){this.started=true;this.dead=false;this.paused=false;this.state.started=true;this.state.paused=false;this.last=performance.now();this.notify('Take it slowly. Fish gather just ahead of you.');this.initAudio();this.audio?.resume().catch(()=>{});this.onPause(false);this.renderer.domElement.focus()}
+ start(){this.started=true;this.dead=false;this.paused=false;this.state.started=true;this.state.paused=false;this.last=performance.now();this.notify('Take it slowly. Fish gather just ahead of you.');this.initAudio();this.audio?.resume();this.onPause(false);this.renderer.domElement.focus()}
  pause(value=true){this.paused=value;this.state.paused=value;this.clearInput();this.onPause(value);if(!value){this.last=performance.now();this.renderer.domElement.focus()}this.updateUI()}
  clearInput(){this.keys.clear();this.touch.joystick={x:0,y:0};this.touch.sprint=false;this.touch.stalk=false;this.cameraPointer=null}
  restart(){
@@ -59,23 +60,23 @@ export class Engine{
  continue(){if(!this.saved)return;const s=this.saved;this.restart();Object.assign(this.state,{health:s.health,hunger:s.hunger,stamina:s.stamina,air:100,warmth:s.warmth,growth:s.growth,kills:s.kills,fishCaught:s.fishCaught,buffaloCaught:s.buffaloCaught,distance:s.distance,elapsed:s.elapsed,landmarks:[...s.landmarks]});const ground=heightAt(s.x,s.z);this.croc.root.position.set(s.x,ground<-.45?waterLevel(s.elapsed)-.12:ground+.035,s.z);this.croc.root.rotation.y=s.heading;this.yaw=s.heading;this.time=s.elapsed;this.regions=new Set(s.regions);this.world.update(s.x,s.z,this.time,this.quality);this.notify('Your expedition continues.');this.updateUI()}
  save(){if(!this.started||this.dead)return false;const p=this.croc.root.position;const s:ExpeditionSave={version:2,health:this.state.health,hunger:this.state.hunger,stamina:this.state.stamina,air:this.state.air,warmth:this.state.warmth,growth:this.state.growth,kills:this.state.kills,fishCaught:this.state.fishCaught,buffaloCaught:this.state.buffaloCaught,distance:this.state.distance,elapsed:this.time,x:p.x,y:p.y,z:p.z,heading:this.croc.root.rotation.y,regions:[...this.regions],landmarks:[...this.state.landmarks],savedAt:new Date().toISOString()};const ok=writeSave(s);if(ok){this.saved=s;this.state.canContinue=true;this.notify('Expedition saved on this device.')}else this.notify('This browser could not save your expedition.');return ok}
  setQuality(level:number){this.quality=clamp(Math.round(level),1,3);this.autoQuality=false;this.state.quality=['','Performance','Balanced','Cinematic'][this.quality];this.renderer.setPixelRatio(Math.min(devicePixelRatio,[0,1,1.35,1.7][this.quality]));this.renderer.shadowMap.enabled=this.quality>1&&!(this.renderer instanceof SoftwareRenderer);this.resize();this.updateUI()}
- setMuted(value:boolean){this.muted=value;if(this.ambience)this.ambience.gain.value=value?0:.065}
+ setMuted(value:boolean){this.muted=value;this.audio?.setMuted(value)}
  setJoystick(joy:Joystick){this.touch.joystick=joy}
  look(dx:number,dy:number){this.yaw-=dx*.004*this.sensitivity;this.pitch=clamp(this.pitch+dy*.003*this.sensitivity,-.16,1.05);this.cameraIdle=5}
  resetCamera(){this.yaw=this.croc.root.rotation.y;this.pitch=.33;this.zoom=9;this.cameraIdle=0}
  waypoint(id:string){this.waypointId=this.waypointId===id?'':id;const marker=LANDMARKS.find(l=>l.id===this.waypointId);this.state.waypoint=marker?.name||'';this.updateUI()}
  dive(){if(!this.started||this.paused||this.dead)return;if(heightAt(this.croc.root.position.x,this.croc.root.position.z)<waterLevel(this.time)-1){this.diving=!this.diving;this.basking=false;this.notify(this.diving?'Keep an eye on your air. Space / Rise returns to the surface.':'Rising to the surface.')}else this.notify('The water is too shallow. Find the main channel.')}
  surface(){this.diving=false}
- bask(){if(!this.started||this.paused||this.dead)return;const p=this.croc.root.position;if(heightAt(p.x,p.z)<waterLevel(this.time)+.1){this.notify('Find a dry bank to bask.');return}this.basking=!this.basking;this.diving=false;this.notify(this.basking?'Basking restores warmth and helps you recover.':'Back on the hunt.')}
- interact(){if(!this.started||this.paused||this.dead||this.rollTimer>0)return;if(this.grabbed){this.grabbed.flee=8;this.grabbed=null;this.grip=0;this.notify('Prey released.');return}const meal=this.nearestMeal();if(meal&&this.feedingTimer<=0){meal.servings--;this.feedingTimer=1.8;this.biteTimer=.7;this.state.hunger=clamp(this.state.hunger+24,0,100);this.state.health=clamp(this.state.health+4,0,100);this.state.growth=clamp(this.state.growth+9,0,100);this.notify('Feeding. +24 nutrition · +9 growth');this.sfx(170,.2);if(!meal.servings)meal.root.visible=false;this.updateUI()}else if(!meal)this.bask()}
+ bask(){if(!this.started||this.paused||this.dead)return;const p=this.croc.root.position;if(heightAt(p.x,p.z)<waterLevel(this.time)+.1){this.notify('Find a dry bank to bask.');return}this.basking=!this.basking;this.diving=false;if(this.basking)this.audio?.playBaskWarmth();this.notify(this.basking?'Basking restores warmth and helps you recover.':'Back on the hunt.')}
+ interact(){if(!this.started||this.paused||this.dead||this.rollTimer>0)return;if(this.grabbed){this.grabbed.flee=8;this.grabbed=null;this.grip=0;this.notify('Prey released.');return}const meal=this.nearestMeal();if(meal&&this.feedingTimer<=0){meal.servings--;this.feedingTimer=1.8;this.biteTimer=.7;this.state.hunger=clamp(this.state.hunger+24,0,100);this.state.health=clamp(this.state.health+4,0,100);this.state.growth=clamp(this.state.growth+9,0,100);const mLen=(5.0+this.state.growth*0.0414).toFixed(1);const ftLen=(parseFloat(mLen)*3.28084).toFixed(1);this.notify(`Feeding. +24 nutrition · +9 growth · ${ftLen} ft (${mLen} m)`);this.audio?.playFeed();if(!meal.servings)meal.root.visible=false;this.updateUI()}else if(!meal)this.bask()}
  attack(){
   if(!this.started||this.paused||this.dead||this.attackCooldown>0||this.feedingTimer>0||this.rollTimer>0)return;
-  this.basking=false;this.biteTimer=.45;this.attackCooldown=.75;this.sfx(140,.12);
+  this.basking=false;this.biteTimer=.45;this.attackCooldown=.75;this.audio?.playBite();
   if(this.grabbed){this.grabbed.hp--;this.grip=Math.min(100,this.grip+12);if(this.grabbed.hp<=0)this.kill(this.grabbed);this.ripple();return}
-  const p=this.croc.root.position,forward=new T.Vector3(-Math.sin(this.croc.root.rotation.y),0,-Math.cos(this.croc.root.rotation.y));let found:Animal|undefined,nearest=4.7;
+  const p=this.croc.root.position,forward=new T.Vector3(-Math.sin(this.croc.root.rotation.y),0,-Math.cos(this.croc.root.rotation.y));let found:Animal|undefined,nearest=4.7+this.state.growth*0.02;
   for(const a of this.animals){if(!a.alive)continue;const delta=a.root.position.clone().sub(p),dist=delta.length();if(dist<nearest&&delta.clone().normalize().dot(forward)>.45){found=a;nearest=dist}}
   if(found){found.hp--;found.flee=7;
-   if(found.kind==='buffalo'){this.grabbed=found;this.grip=100;found.awareness=1;this.state.health=clamp(this.state.health-4,0,100);this.damageCooldown=3;this.notify('Grabbed! Drag into water, then R / Roll. E releases your grip.');}
+   if(found.kind==='buffalo'){this.grabbed=found;this.grip=100;found.awareness=1;this.state.health=clamp(this.state.health-4,0,100);this.damageCooldown=3;this.audio?.playBuffaloGrunt();this.notify('Grabbed! Drag into water, then R / Roll. E releases your grip.');}
    else this.kill(found);
   }else this.notify('Aim your snout at prey and close the gap.');this.ripple();this.updateUI();
  }
@@ -86,13 +87,14 @@ export class Engine{
   const p=this.croc.root.position;
   if(heightAt(p.x,p.z)>waterLevel(this.time)-.6){this.notify('Pull your prey into deeper water to roll.');return}
   this.state.stamina-=22;this.rollTimer=ROLL_DURATION;this.rollVictim=this.grabbed;this.rollSplash=0;this.state.rolling=true;this.grip=Math.min(100,this.grip+30);
-  this.notify('Death roll! Holding your catch through the turn.');this.sfx(65,.35);this.ripple();this.updateUI();
+  this.notify('Death roll! Holding your catch through the turn.');this.audio?.playRollThrash();this.ripple();this.updateUI();
  }
  private kill(a:Animal){
   a.alive=false;a.respawn=90;a.flee=0;a.servings=a.kind==='buffalo'?3:0;if(this.grabbed===a){this.grabbed=null;this.grip=0}this.state.kills++;
+  const mLen=(5.0+this.state.growth*0.0414).toFixed(1);const ftLen=(parseFloat(mLen)*3.28084).toFixed(1);
   if(a.kind==='buffalo'){this.state.buffaloCaught++;a.root.rotation.set(0,this.croc.root.rotation.y+.8,Math.PI/2);a.root.position.y=Math.max(heightAt(a.root.position.x,a.root.position.z)+.7,waterLevel(this.time)-.22);this.notify('A successful ambush. E / Feed to eat your catch.');}
-  else{a.root.visible=false;if(a.kind==='fish')this.state.fishCaught++;this.state.hunger=clamp(this.state.hunger+(a.kind==='fish'?14:9),0,100);this.state.health=clamp(this.state.health+2,0,100);this.state.growth=clamp(this.state.growth+(a.kind==='fish'?8:5),0,100);this.notify(a.kind==='fish'?'Fish caught. +14 nutrition · +8 growth':'Crab caught. +9 nutrition · +5 growth')}
-  this.sfx(240,.1);
+  else{a.root.visible=false;if(a.kind==='fish')this.state.fishCaught++;this.state.hunger=clamp(this.state.hunger+(a.kind==='fish'?14:9),0,100);this.state.health=clamp(this.state.health+2,0,100);this.state.growth=clamp(this.state.growth+(a.kind==='fish'?8:5),0,100);this.notify(a.kind==='fish'?`Fish caught. +14 nutrition · +8 growth · ${ftLen} ft`:`Crab caught. +9 nutrition · +5 growth · ${ftLen} ft`)}
+  this.audio?.playBite();
  }
  private nearestMeal(){const p=this.croc.root.position;return this.animals.find(a=>!a.alive&&a.servings>0&&a.root.position.distanceTo(p)<6)}
  private notify(msg:string){this.state.message=msg;this.messageTimer=6;this.updateUI()}
@@ -118,7 +120,7 @@ export class Engine{
   this.birds.forEach((b,i)=>{b.angle+=dt*b.speed;b.root.position.set(Math.cos(b.angle)*b.radius+this.croc.root.position.x,b.y,Math.sin(b.angle)*b.radius+this.croc.root.position.z);b.root.rotation.y=-b.angle;b.root.userData.animate?.(this.ambientTime+i)});
   this.particles.forEach(p=>{const fxdt=this.paused?0:dt;p.life-=fxdt;if(p.velocity){p.mesh.position.addScaledVector(p.velocity,fxdt);p.velocity.y-=5*fxdt;p.mesh.scale.setScalar(.7+.3*p.life/p.max);}else p.mesh.scale.setScalar((1-p.life/p.max)*4+.1);(p.mesh.material as T.MeshBasicMaterial).opacity=Math.max(0,p.life/p.max)*(p.velocity ? .7 : .24)});this.particles=this.particles.filter(p=>{if(p.life<=0){this.scene.remove(p.mesh);p.mesh.geometry.dispose();(p.mesh.material as T.Material).dispose();return false}return true});
   this.sun.position.copy(this.croc.root.position).add(new T.Vector3(-70,100,-50));this.sun.target.position.copy(this.croc.root.position);
-  this.renderer.render(this.scene,this.camera);this.uiTimer+=dt;if(this.uiTimer>.2){this.uiTimer=0;this.updateUI();this.drawMap();this.adaptQuality()}this.frame=requestAnimationFrame(this.loop);
+  this.renderer.render(this.scene,this.camera);this.uiTimer+=dt;if(this.uiTimer>.06){this.uiTimer=0;this.updateUI();this.drawMap();this.adaptQuality()}this.frame=requestAnimationFrame(this.loop);
  };
  private animateCroc(time:number){
   const pose=this.rollTimer>0?rollPose(this.rollTimer):{angle:0,tuck:0,lift:0,coil:0};
@@ -148,7 +150,7 @@ export class Engine{
   this.state.hunger=Math.max(0,this.state.hunger-dt*(fast?.19:.085));this.state.air=clamp(this.state.air+(p.y<water-.7?-1.35:17)*dt,0,100);
   this.state.warmth=clamp(this.state.warmth+(this.basking?.28:swim?-.065:.1)*dt,0,100);
   if(this.state.hunger===0||this.state.air===0)this.state.health=Math.max(0,this.state.health-dt*4);else if(this.state.hunger>45&&this.state.warmth>35)this.state.health=Math.min(100,this.state.health+dt*(this.basking?.6:.16));
-  this.croc.root.scale.setScalar(.8+this.state.growth*.002);this.state.depth=Math.max(0,water-p.y);this.state.speed=Math.abs(this.speed);this.state.biome=biomeAt(p.x,p.z);
+  this.croc.root.scale.setScalar(.8+this.state.growth*.0066);this.state.depth=Math.max(0,water-p.y);this.state.speed=Math.abs(this.speed);this.state.biome=biomeAt(p.x,p.z);
   if(!this.regions.has(this.state.biome)){this.regions.add(this.state.biome);this.notify('New habitat: '+this.state.biome.toLowerCase()+'.')}this.state.regions=this.regions.size;
   for(const marker of LANDMARKS){if(!this.state.landmarks.includes(marker.id)&&Math.hypot(marker.x-p.x,marker.z-p.z)<23){this.state.landmarks.push(marker.id);this.notify('Discovered '+marker.name+'. '+marker.description)}}
   this.state.x=p.x;this.state.z=p.z;this.state.heading=((-this.croc.root.rotation.y*180/Math.PI)%360+360)%360;this.state.elapsed=this.time;
@@ -156,6 +158,8 @@ export class Engine{
   this.attackCooldown=Math.max(0,this.attackCooldown-dt);this.biteTimer=Math.max(0,this.biteTimer-dt);this.rollTimer=Math.max(0,this.rollTimer-dt);this.feedingTimer=Math.max(0,this.feedingTimer-dt);this.damageCooldown=Math.max(0,this.damageCooldown-dt);this.messageTimer-=dt;if(this.messageTimer<0)this.state.message='';
   this.animateCroc(this.time);
   this.stepAnimals(dt,stalk,swim);
+  this.audio?.setUnderwater(p.y<water-.7||this.state.mode==='DIVING');
+  this.audio?.setIntensity(this.rollTimer>0?'roll':this.grabbed?'hunt':stalk?'stalk':'calm');
   if(this.grabbed){
    const a=this.grabbed;
    this.grip=Math.max(0,this.grip-dt*(this.rollTimer>0?0:swim?4:9));
@@ -175,7 +179,7 @@ export class Engine{
   if(this.rollVictim&&this.rollTimer<=0){const victim=this.rollVictim;this.rollVictim=null;if(victim===this.grabbed&&victim.alive){victim.hp-=2;if(victim.hp<=0)this.kill(victim)}}
   this.state.grip=this.grabbed?this.grip:0;this.state.meal=!!this.nearestMeal();this.state.basking=this.basking;this.state.feeding=this.feedingTimer>0;this.state.rolling=this.rollTimer>0;
   const marker=LANDMARKS.find(m=>m.id===this.waypointId);this.state.waypointDistance=marker?Math.hypot(marker.x-p.x,marker.z-p.z):0;this.state.waypointBearing=marker?angleDelta(this.yaw,Math.atan2(p.x-marker.x,p.z-marker.z))*180/Math.PI:0;
-  this.wakeTimer+=dt;if(swim&&Math.abs(this.speed)>1&&this.wakeTimer>.65&&this.particles.length<8){this.wakeTimer=0;this.ripple()}
+  this.wakeTimer+=dt;if(swim&&Math.abs(this.speed)>1&&this.wakeTimer>.65&&this.particles.length<8){this.wakeTimer=0;this.ripple();if(Math.abs(this.speed)>5.5)this.audio?.playSplash();}
   if(this.state.health<=0){this.dead=true;this.state.dead=true;this.clearInput();this.grabbed=null;this.rollVictim=null;this.rollTimer=0;this.notify('Your time in the estuary has ended.');this.updateUI()}
  }
  private stepAnimals(dt:number,stalk:boolean,swim:boolean){
@@ -196,11 +200,11 @@ export class Engine{
    if(valid&&Math.abs(x)<HALF-20&&Math.abs(z)<HALF-20){a.root.position.x=x;a.root.position.z=z}else{for(const offset of [Math.PI/3,-Math.PI/3,Math.PI/2,-Math.PI/2,Math.PI]){const alternative=a.angle+offset,ax=a.root.position.x+Math.sin(alternative)*a.velocity*dt,az=a.root.position.z+Math.cos(alternative)*a.velocity*dt;if(validHabitat(a.kind,ax,az,waterLevel(this.time))&&Math.abs(ax)<HALF-20&&Math.abs(az)<HALF-20){a.root.position.x=ax;a.root.position.z=az;a.angle=alternative;break}}}
    const actualH=heightAt(a.root.position.x,a.root.position.z);a.root.position.y=a.kind==='fish'?Math.max(actualH+.35,waterLevel(this.time)-1.04+Math.sin(a.phase)*.15):actualH;a.root.rotation.y=a.angle+Math.PI;a.root.userData.animate?.(this.time+a.phase,a.velocity);
   }
-  const bearing=nearby?angleDelta(this.croc.root.rotation.y,Math.atan2(p.x-nearby.root.position.x,p.z-nearby.root.position.z)):0;const direction=Math.abs(bearing)<.5?'AHEAD':Math.abs(bearing)>2.5?'BEHIND':bearing>0?'LEFT':'RIGHT';this.state.canBite=!!nearby&&best<4.7&&Math.cos(bearing)*Math.hypot(p.x-nearby.root.position.x,p.z-nearby.root.position.z)/Math.max(.01,best)>.45;this.state.target=this.grabbed?'BUFFALO · IN YOUR GRIP':nearby?`${nearby.kind.toUpperCase()} · ${Math.round(best)} M · ${direction}`:'';this.state.awareness=nearby?.awareness||0;
+  const bearing=nearby?angleDelta(this.croc.root.rotation.y,Math.atan2(p.x-nearby.root.position.x,p.z-nearby.root.position.z)):0;const direction=Math.abs(bearing)<.5?'AHEAD':Math.abs(bearing)>2.5?'BEHIND':bearing>0?'LEFT':'RIGHT';const reach=4.7+this.state.growth*0.02;this.state.canBite=!!nearby&&best<reach&&Math.cos(bearing)*Math.hypot(p.x-nearby.root.position.x,p.z-nearby.root.position.z)/Math.max(.01,best)>.45;this.state.target=this.grabbed?'BUFFALO · IN YOUR GRIP':nearby?`${nearby.kind.toUpperCase()} · ${Math.round(best)} M · ${direction}`:'';this.state.awareness=nearby?.awareness||0;
  }
  private updateCamera(dt:number){
   const p=this.croc.root.position;if(!this.started){this.yaw=.55+Math.sin(this.ambientTime*.035)*.14;this.pitch=.31;this.zoom=8.8}
-  const target=p.clone().add(new T.Vector3(0,.48,0)),pitch=this.diving&&this.cameraIdle<=0?Math.min(this.pitch,.13):this.pitch,zoom=this.diving?Math.min(this.zoom,7.8):this.zoom,offset=new T.Vector3(Math.sin(this.yaw)*zoom*Math.cos(pitch),zoom*Math.sin(pitch)+.6,Math.cos(this.yaw)*zoom*Math.cos(pitch)),pos=target.clone().add(offset);pos.y=Math.max(pos.y,heightAt(pos.x,pos.z)+.85);this.camera.position.lerp(pos,1-Math.exp(-6*dt));this.camera.lookAt(target);
+  const target=p.clone().add(new T.Vector3(0,.48+this.state.growth*.0025,0)),pitch=this.diving&&this.cameraIdle<=0?Math.min(this.pitch,.13):this.pitch,zoom=(this.diving?Math.min(this.zoom,7.8):this.zoom)*(1+this.state.growth*.0035),offset=new T.Vector3(Math.sin(this.yaw)*zoom*Math.cos(pitch),zoom*Math.sin(pitch)+.6,Math.cos(this.yaw)*zoom*Math.cos(pitch)),pos=target.clone().add(offset);if(this.rollTimer>0){const shake=(Math.random()-.5)*.14;pos.x+=shake;pos.y+=shake}pos.y=Math.max(pos.y,heightAt(pos.x,pos.z)+.85);this.camera.position.lerp(pos,1-Math.exp(-6*dt));this.camera.lookAt(target);
  }
  private updateUI(){this.state.fps=Math.round(this.fpsSamples.reduce((a,b)=>a+b,0)/Math.max(1,this.fpsSamples.length));this.state.drawCalls=this.renderer.info.render.calls;this.onUpdate({...this.state,landmarks:[...this.state.landmarks]})}
  private baseMap?:HTMLCanvasElement;
@@ -224,11 +228,11 @@ export class Engine{
    this.particles.push({mesh:droplet,life:.65,max:.65,velocity:new T.Vector3(Math.cos(a)*1.8,1.7,Math.sin(a)*1.8)});
   }
  }
- private initAudio(){if(this.audio)return;try{this.audio=new AudioContext();const len=this.audio.sampleRate*4,buf=this.audio.createBuffer(1,len,this.audio.sampleRate),data=buf.getChannelData(0);let v=0;for(let i=0;i<len;i++){v=(v+Math.random()*.055-.0275)*.98;data[i]=v}const src=this.audio.createBufferSource();src.buffer=buf;src.loop=true;const filter=this.audio.createBiquadFilter();filter.type='lowpass';filter.frequency.value=720;this.ambience=this.audio.createGain();this.ambience.gain.value=this.muted?0:.065;src.connect(filter).connect(this.ambience).connect(this.audio.destination);src.start();this.audioSources.push(src);this.audioNodes.push(filter,this.ambience)}catch{}}
- private sfx(f:number,d:number){if(!this.audio||this.muted)return;const o=this.audio.createOscillator(),g=this.audio.createGain();o.type='triangle';o.frequency.setValueAtTime(f,this.audio.currentTime);o.frequency.exponentialRampToValueAtTime(40,this.audio.currentTime+d);g.gain.setValueAtTime(.08,this.audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,this.audio.currentTime+d);o.connect(g).connect(this.audio.destination);o.start();o.stop(this.audio.currentTime+d);o.onended=()=>{o.disconnect();g.disconnect()}}
+ private initAudio(){if(this.audio)return;try{this.audio=new JungleAudio();this.audio.init();if(this.muted)this.audio.setMuted(true)}catch{}}
+ private sfx(f:number,d:number){this.audio?.playBite()}
  dispose(){
   this.disposed=true;cancelAnimationFrame(this.frame);window.removeEventListener('resize',this.resize);window.removeEventListener('keydown',this.keyDown);window.removeEventListener('keyup',this.keyUp);window.removeEventListener('blur',this.blur);document.removeEventListener('visibilitychange',this.visibility);
   const el=this.renderer.domElement;el.removeEventListener('pointerdown',this.pointerDown);el.removeEventListener('pointerup',this.pointerUp);el.removeEventListener('pointercancel',this.pointerCancel);el.removeEventListener('lostpointercapture',this.pointerCancel);el.removeEventListener('pointermove',this.pointerMove);el.removeEventListener('wheel',this.wheel);el.removeEventListener('contextmenu',this.contextMenu);el.removeEventListener('webglcontextlost',this.contextLost);
-  const geos=new Set<T.BufferGeometry>(),mats=new Set<T.Material>(),textures=new Set<T.Texture>();this.scene.traverse(o=>{if(o instanceof T.Mesh){geos.add(o.geometry);(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{mats.add(m);Object.values(m).forEach(v=>{if(v instanceof T.Texture)textures.add(v)})})}});this.world.dispose();geos.forEach(g=>g.dispose());mats.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());this.croc.skin.skeleton.dispose();this.renderer.dispose();el.remove();this.audio?.close().catch(()=>{});
+  const geos=new Set<T.BufferGeometry>(),mats=new Set<T.Material>(),textures=new Set<T.Texture>();this.scene.traverse(o=>{if(o instanceof T.Mesh){geos.add(o.geometry);(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{mats.add(m);Object.values(m).forEach(v=>{if(v instanceof T.Texture)textures.add(v)})})}});this.world.dispose();geos.forEach(g=>g.dispose());mats.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());this.croc.skin.skeleton.dispose();this.renderer.dispose();el.remove();this.audio?.dispose();
  }
 }
