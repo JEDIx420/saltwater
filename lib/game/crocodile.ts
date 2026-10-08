@@ -18,7 +18,7 @@ function segment(parent:T.Group,mat:T.Material,end:T.Vector3,radius:number){
  const length=end.length(),g=profileGeometry([[0,radius*.8,radius*.78,0],[length*.22,radius,radius*.88,0],[length*.7,radius*.82,radius*.7,0],[length,radius*.63,radius*.58,0]],12,2);
  const m=mesh(parent,g,mat,[0,0,0]);m.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),end.clone().normalize());return m;
 }
-export type CrocMotion={gripping?:boolean;rollTuck?:number;rollLift?:number;rollCoil?:number;diving?:boolean};
+export type CrocMotion={gripping?:boolean;rollTuck?:number;rollLift?:number;rollCoil?:number;diving?:boolean;tailWhip?:number};
 
 export function crocodile(theme:'player'|'rival'='player'){
  const root=new T.Group(),body=new T.Group(),anatomy=new T.Group();
@@ -110,7 +110,8 @@ export function crocodile(theme:'player'|'rival'='player'){
    head.position.z=-1.12-strike*.07;
    tail.forEach((b,i)=>{
     const amplitude=.015+move*(.04+waterBlend*.09)*(1+i*.075);
-    b.rotation.y=Math.sin(phase-i*.55)*amplitude-turn*.035*(.3+i/8)+coil*.09*(i/8);
+    const whip=(extra.tailWhip??0)*Math.sin((i+1)/8*Math.PI)*1.3;
+    b.rotation.y=Math.sin(phase-i*.55)*amplitude-turn*.035*(.3+i/8)+coil*.09*(i/8)+whip;
     b.rotation.x=waterBlend*(Math.sin(time*1.7-i*.3)*.008+(extra.diving?.018:0));
    });
    legs.forEach((l,i)=>{

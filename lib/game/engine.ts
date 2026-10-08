@@ -9,7 +9,7 @@ import {readSave,writeSave,type ExpeditionSave} from './storage';
 import {JungleAudio} from './audio';
 export type Snapshot={health:number;hunger:number;stamina:number;air:number;warmth:number;mode:string;biome:string;speed:number;depth:number;kills:number;fishCaught:number;buffaloCaught:number;growth:number;distance:number;regions:number;landmarks:string[];elapsed:number;time:string;heading:number;fps:number;message:string;target:string;canBite:boolean;awareness:number;grip:number;meal:boolean;basking:boolean;dead:boolean;started:boolean;paused:boolean;x:number;z:number;drawCalls:number;renderer:string;waypoint:string;waypointDistance:number;waypointBearing:number;canContinue:boolean;feeding:boolean;rolling:boolean;quality:string;title:string;rivalNear:string};
 export const initial:Snapshot={health:100,hunger:70,stamina:100,air:100,warmth:72,mode:'SURFACE',biome:'MANGROVE REACH',speed:0,depth:0,kills:0,fishCaught:0,buffaloCaught:0,growth:0,distance:0,regions:1,landmarks:[],elapsed:0,time:'16:42',heading:0,fps:0,message:'The estuary is yours.',target:'',canBite:false,awareness:0,grip:0,meal:false,basking:false,dead:false,started:false,paused:false,x:0,z:-38,drawCalls:0,renderer:'WebGL',waypoint:'',waypointDistance:0,waypointBearing:0,canContinue:false,feeding:false,rolling:false,quality:'Balanced',title:'Yearling (5-6 ft)',rivalNear:''};
-export type Animal={root:T.Group;kind:'fish'|'crab'|'buffalo';alive:boolean;hp:number;home:T.Vector3;angle:number;phase:number;respawn:number;flee:number;awareness:number;velocity:number;servings:number;drinkTimer?:number;drinking?:boolean;drinkSpot?:{x:number;z:number}};
+export type Animal={root:T.Group;kind:'fish'|'crab'|'buffalo';alive:boolean;hp:number;home:T.Vector3;angle:number;phase:number;respawn:number;flee:number;awareness:number;velocity:number;servings:number;drinkTimer?:number;drinking?:boolean;drinkSpot?:{x:number;z:number};crossing?:boolean;crossTarget?:{x:number;z:number};crossTimer?:number};
 export type RivalKind='croc'|'shark'|'hippo';
 export type Rival={root:T.Group;kind:RivalKind;name:string;alive:boolean;hp:number;maxHp:number;home:T.Vector3;territoryRadius:number;angle:number;phase:number;respawn:number;velocity:number;servings:number;warningTimer:number;attackCooldown:number;fleeing?:boolean};
 export type PloverBird={root:T.Group;landed:boolean;hopTimer:number};
@@ -17,7 +17,7 @@ export type WaderBird={root:T.Group;home:T.Vector3;fleeing:boolean;fleeTimer:num
 export class Engine{
  scene=new T.Scene();camera=new T.PerspectiveCamera(55,1,.1,1100);renderer:T.WebGLRenderer|SoftwareRenderer;state:Snapshot={...initial,landmarks:[]};croc=crocodile();world:ReturnType<typeof makeWorld>;animals:Animal[]=[];rivals:Rival[]=[];plovers:PloverBird[]=[];waders:WaderBird[]=[];
  keys=new Set<string>();touch:{joystick:Joystick;sprint:boolean;stalk:boolean}={joystick:{x:0,y:0},sprint:false,stalk:false};yaw=.42;pitch=.33;zoom=9;sensitivity=1;diving=false;muted=false;quality=2;started=false;paused=false;dead=false;disposed=false;
- private frame=0;private time=0;private ambientTime=0;private last=0;private accumulator=0;private speed=0;private turnAmount=0;private biteTimer=0;private attackCooldown=0;private rollTimer=0;private rollVictim:Animal|null=null;private rollSplash=0;private feedingTimer=0;private messageTimer=5;private damageCooldown=0;private regions=new Set(['MANGROVE REACH']);private uiTimer=0;private fpsSamples:number[]=[];private cameraPointer:number|null=null;private oldX=0;private oldY=0;private pointerStartX=0;private pointerStartY=0;private pointerStartTime=0;private pointerButton=0;private cameraIdle=0;private grabbed:Animal|null=null;private grip=0;private basking=false;private birds:{root:T.Group;angle:number;radius:number;y:number;speed:number}[]=[];private ploverSoundTimer=0;
+ private frame=0;private time=0;private ambientTime=0;private last=0;private accumulator=0;private speed=0;private turnAmount=0;private biteTimer=0;private attackCooldown=0;private rollTimer=0;private rollVictim:Animal|null=null;private rollSplash=0;private feedingTimer=0;private messageTimer=5;private damageCooldown=0;private regions=new Set(['MANGROVE REACH']);private uiTimer=0;private fpsSamples:number[]=[];private cameraPointer:number|null=null;private oldX=0;private oldY=0;private pointerStartX=0;private pointerStartY=0;private pointerStartTime=0;private pointerButton=0;private cameraIdle=0;private grabbed:Animal|null=null;private grabbedRival:Rival|null=null;private rollRivalVictim:Rival|null=null;private tailWhipTimer=0;private tailWhipCooldown=0;private grip=0;private basking=false;private birds:{root:T.Group;angle:number;radius:number;y:number;speed:number}[]=[];private ploverSoundTimer=0;
  private particles:{mesh:T.Mesh;life:number;max:number;velocity?:T.Vector3}[]=[];private audio:JungleAudio|null=null;private sun:T.DirectionalLight;private waypointId='';private autoQuality=true;private slowFrames=0;private wakeTimer=0;private saved:ExpeditionSave|null=null;
  constructor(private container:HTMLElement,private map:HTMLCanvasElement,private onUpdate:(s:Snapshot)=>void,private onPause:(p:boolean)=>void){
   try{this.renderer=new T.WebGLRenderer({antialias:true,powerPreference:'high-performance'});}catch{this.renderer=new SoftwareRenderer()}
@@ -118,8 +118,8 @@ export class Engine{
  pause(value=true){this.paused=value;this.state.paused=value;this.clearInput();this.onPause(value);if(!value){this.last=performance.now();this.renderer.domElement.focus()}this.updateUI()}
  clearInput(){this.keys.clear();this.touch.joystick={x:0,y:0};this.touch.sprint=false;this.touch.stalk=false;this.cameraPointer=null}
  restart(){
-  this.croc.root.position.set(riverCenter(-38)+14,-.12,-38);this.croc.root.rotation.set(0,0,0);const renderer=this.state.renderer,quality=this.state.quality;this.state={...initial,landmarks:[],renderer,quality,started:true,canContinue:!!this.saved};this.speed=0;this.time=0;this.diving=false;this.dead=false;this.grabbed=null;this.grip=0;this.basking=false;this.rollTimer=0;this.rollVictim=null;this.rollSplash=0;this.croc.reset();this.biteTimer=0;this.attackCooldown=0;this.feedingTimer=0;this.regions=new Set(['MANGROVE REACH']);this.waypointId='';this.yaw=.42;
-  this.animals.forEach(a=>{a.alive=true;a.hp=a.kind==='buffalo'?3:1;a.root.visible=true;a.root.position.copy(a.home);a.root.rotation.set(0,a.angle+Math.PI,0);a.velocity=0;a.flee=0;a.awareness=0;a.servings=0;a.drinking=false;a.drinkSpot=undefined;});
+  this.croc.root.position.set(riverCenter(-38)+14,-.12,-38);this.croc.root.rotation.set(0,0,0);const renderer=this.state.renderer,quality=this.state.quality;this.state={...initial,landmarks:[],renderer,quality,started:true,canContinue:!!this.saved};this.speed=0;this.time=0;this.diving=false;this.dead=false;this.grabbed=null;this.grabbedRival=null;this.rollRivalVictim=null;this.tailWhipTimer=0;this.tailWhipCooldown=0;this.grip=0;this.basking=false;this.rollTimer=0;this.rollVictim=null;this.rollSplash=0;this.croc.reset();this.biteTimer=0;this.attackCooldown=0;this.feedingTimer=0;this.regions=new Set(['MANGROVE REACH']);this.waypointId='';this.yaw=.42;
+  this.animals.forEach(a=>{a.alive=true;a.hp=a.kind==='buffalo'?3:1;a.root.visible=true;a.root.position.copy(a.home);a.root.rotation.set(0,a.angle+Math.PI,0);a.velocity=0;a.flee=0;a.awareness=0;a.servings=0;a.drinking=false;a.drinkSpot=undefined;a.crossing=false;a.crossTarget=undefined;a.crossTimer=35+((a.phase*7)%45);});
   this.rivals?.forEach(r=>{r.alive=true;r.hp=r.maxHp;r.root.visible=true;r.root.position.copy(r.home);r.root.rotation.set(0,r.angle,0);r.velocity=0;r.servings=0;r.fleeing=false;});
   this.waders?.forEach(w=>{w.fleeing=false;w.root.position.copy(w.home);});
   this.plovers?.forEach(pl=>{pl.landed=false;pl.root.visible=false;});
@@ -136,13 +136,51 @@ export class Engine{
  dive(){if(!this.started||this.paused||this.dead)return;if(heightAt(this.croc.root.position.x,this.croc.root.position.z)<waterLevel(this.time)-1){this.diving=!this.diving;this.basking=false;this.notify(this.diving?'Keep an eye on your air. Space / Rise returns to the surface.':'Rising to the surface.')}else this.notify('The water is too shallow. Find the main channel.')}
  surface(){this.diving=false}
  bask(){if(!this.started||this.paused||this.dead)return;const p=this.croc.root.position;if(heightAt(p.x,p.z)<waterLevel(this.time)+.1){this.notify('Find a dry bank to bask.');return}this.basking=!this.basking;this.diving=false;if(this.basking)this.audio?.playBaskWarmth();this.notify(this.basking?'Basking restores warmth and helps you recover.':'Back on the hunt.')}
- interact(){if(!this.started||this.paused||this.dead||this.rollTimer>0)return;if(this.grabbed){this.grabbed.flee=8;this.grabbed=null;this.grip=0;this.notify('Prey released.');return}const meal=this.nearestMeal();if(meal&&this.feedingTimer<=0){meal.servings--;this.feedingTimer=1.8;this.biteTimer=.7;this.state.hunger=clamp(this.state.hunger+24,0,100);this.state.health=clamp(this.state.health+4,0,100);this.state.growth=clamp(this.state.growth+9,0,100);const mLen=(5.0+this.state.growth*0.0414).toFixed(1);const ftLen=(parseFloat(mLen)*3.28084).toFixed(1);this.notify(`Feeding. +24 nutrition · +9 growth · ${ftLen} ft (${mLen} m)`);this.audio?.playFeed();if(!meal.servings)meal.root.visible=false;this.updateUI()}else if(!meal)this.bask()}
+ tailWhip(){
+  if(!this.started||this.paused||this.dead||this.tailWhipCooldown>0||this.rollTimer>0)return;
+  if(this.state.stamina<12){this.notify('Low stamina for tail whip.');return}
+  this.state.stamina-=12;this.tailWhipCooldown=1.05;this.tailWhipTimer=0.42;this.basking=false;
+  this.audio?.playTailWhip();
+  const p=this.croc.root.position,water=waterLevel(this.time),swim=heightAt(p.x,p.z)<water-.5;
+  if(swim)this.ripple();else this.sandDust(p);
+  const forward=new T.Vector3(-Math.sin(this.croc.root.rotation.y),0,-Math.cos(this.croc.root.rotation.y));
+  let hit=false;
+  for(const r of (this.rivals||[])){
+   if(r===this.grabbedRival)continue;
+   if(!r.alive)continue;
+   const delta=r.root.position.clone().sub(p),dist=delta.length();
+   if(dist<6.4&&delta.clone().normalize().dot(forward)<.4){
+    r.hp-=2;r.attackCooldown=2.5;r.warningTimer=2;r.velocity=-4.5;
+    const knock=delta.clone().normalize().multiplyScalar(4.2);
+    r.root.position.add(knock);
+    this.bloodBurst(r.root.position);
+    hit=true;
+    if(r.hp<=0)this.killRival(r);
+    else this.notify(`Tail whip knocked back ${r.name}! (HP ${r.hp}/${r.maxHp})`);
+   }
+  }
+  if(!hit){
+   for(const a of this.animals){
+    if(!a.alive)continue;
+    const delta=a.root.position.clone().sub(p),dist=delta.length();
+    if(dist<5.2){
+     a.flee=8;a.awareness=1;
+     if(a.kind==='buffalo'){a.hp--;if(a.hp<=0)this.kill(a)}
+     else this.kill(a);
+     hit=true;break;
+    }
+   }
+  }
+  this.updateUI();
+ }
+ interact(){if(!this.started||this.paused||this.dead||this.rollTimer>0)return;if(this.grabbed){this.grabbed.flee=8;this.grabbed=null;this.grip=0;this.notify('Prey released.');return}if(this.grabbedRival){this.grabbedRival.warningTimer=3;this.grabbedRival=null;this.grip=0;this.notify('Rival released from jaw lock.');return}const meal=this.nearestMeal();if(meal&&this.feedingTimer<=0){meal.servings--;this.feedingTimer=1.8;this.biteTimer=.7;this.state.hunger=clamp(this.state.hunger+24,0,100);this.state.health=clamp(this.state.health+4,0,100);this.state.growth=clamp(this.state.growth+9,0,100);const mLen=(5.0+this.state.growth*0.0414).toFixed(1);const ftLen=(parseFloat(mLen)*3.28084).toFixed(1);this.notify(`Feeding. +24 nutrition · +9 growth · ${ftLen} ft (${mLen} m)`);this.audio?.playFeed();if(!meal.servings)meal.root.visible=false;this.updateUI()}else if(!meal)this.bask()}
  attack(){
   if(!this.started||this.paused||this.dead||this.attackCooldown>0||this.feedingTimer>0||this.rollTimer>0)return;
   this.basking=false;this.biteTimer=.45;this.attackCooldown=.75;this.audio?.playBite();this.audio?.playBiteLunge();
   const p=this.croc.root.position,water=waterLevel(this.time),ground=heightAt(p.x,p.z),swim=ground<water-.5;
-  this.speed=Math.max(this.speed+(swim?5.2:3.8),swim?7.8:5.2);
-  if(this.grabbed){this.grabbed.hp--;this.grip=Math.min(100,this.grip+12);this.bloodBurst(this.grabbed.root.position);if(this.grabbed.hp<=0)this.kill(this.grabbed);this.ripple();return}
+  this.speed=Math.max(this.speed+(swim?5.5:4.0),swim?8.0:5.5);
+  if(this.grabbed){this.grabbed.hp--;this.grip=Math.min(100,this.grip+15);this.bloodBurst(this.grabbed.root.position);if(this.grabbed.hp<=0)this.kill(this.grabbed);this.ripple();return}
+  if(this.grabbedRival){this.grabbedRival.hp-=2;this.grip=Math.min(100,this.grip+15);this.bloodBurst(this.grabbedRival.root.position);if(this.grabbedRival.hp<=0){this.killRival(this.grabbedRival);this.grabbedRival=null;this.grip=0;}else this.notify(`Biting clamped ${this.grabbedRival.name}! Strike again or press R to Death Roll.`);this.ripple();return;}
   const forward=new T.Vector3(-Math.sin(this.croc.root.rotation.y),0,-Math.cos(this.croc.root.rotation.y));let found:Animal|undefined,nearest=4.7+this.state.growth*0.02;
   for(const a of this.animals){if(!a.alive)continue;const delta=a.root.position.clone().sub(p),dist=delta.length();if(dist<nearest&&delta.clone().normalize().dot(forward)>.45){found=a;nearest=dist}}
   let foundRival:Rival|undefined;
@@ -166,12 +204,14 @@ export class Engine{
  }
  roll(){
   if(!this.started||this.paused||this.dead||this.rollTimer>0)return;
-  if(!this.grabbed){this.notify('Bite and hold large prey before rolling.');return}
+  if(!this.grabbed&&!this.grabbedRival){this.notify('Bite and hold large prey before rolling.');return}
   if(this.state.stamina<22){this.notify('Rest to recover enough stamina for a roll.');return}
   const p=this.croc.root.position;
-  if(heightAt(p.x,p.z)>waterLevel(this.time)-.6){this.notify('Pull your prey into deeper water to roll.');return}
-  this.state.stamina-=22;this.rollTimer=ROLL_DURATION;this.rollVictim=this.grabbed;this.rollSplash=0;this.state.rolling=true;this.grip=Math.min(100,this.grip+30);
-  this.notify('Death roll! Holding your catch through the turn.');this.audio?.playRollThrash();this.ripple();this.bloodBurst(p);this.updateUI();
+  if(heightAt(p.x,p.z)>waterLevel(this.time)-.55){this.notify('Pull into deeper water to roll.');return}
+  this.state.stamina-=22;this.rollTimer=ROLL_DURATION;this.rollSplash=0;this.state.rolling=true;this.grip=Math.min(100,this.grip+30);
+  if(this.grabbedRival){this.rollRivalVictim=this.grabbedRival;this.notify(`Death roll! Tearing into ${this.grabbedRival.name}!`);}
+  else{this.rollVictim=this.grabbed;this.notify('Death roll! Holding your catch through the turn.');}
+  this.audio?.playRollThrash();this.ripple();this.bloodBurst(p);this.updateUI();
  }
  private kill(a:Animal){
   a.alive=false;a.respawn=90;a.flee=0;a.servings=a.kind==='buffalo'?3:0;if(this.grabbed===a){this.grabbed=null;this.grip=0}this.state.kills++;
@@ -205,7 +245,7 @@ export class Engine{
  private keyDown=(e:KeyboardEvent)=>{
   if((e.target as HTMLElement)?.closest('input,textarea,[role="slider"],[role="dialog"]'))return;const key=e.key.toLowerCase();if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(key))e.preventDefault();if(e.repeat)return;
   if(key==='escape'&&this.started&&!this.dead){this.pause(!this.paused);return}if(!this.started||this.paused||this.dead)return;this.keys.add(key);
-  if(key==='c')this.dive();if(key==='f')this.attack();if(key==='r')this.roll();if(key==='e')this.interact();if(key==='b')this.bask();if(key==='v')this.resetCamera();
+  if(key==='c')this.dive();if(key==='f')this.attack();if(key==='r')this.roll();if(key==='e')this.interact();if(key==='b')this.bask();if(key==='v')this.resetCamera();if(key==='q')this.tailWhip();
  };
  private keyUp=(e:KeyboardEvent)=>this.keys.delete(e.key.toLowerCase());private blur=()=>{if(this.started&&!this.dead)this.pause(true)};private visibility=()=>{if(document.hidden)this.blur()};private contextMenu=(e:Event)=>e.preventDefault();private contextLost=(e:Event)=>{e.preventDefault();this.pause();this.notify('Graphics paused. Save your expedition and reload to restore rendering.')};
  private pointerDown=(e:PointerEvent)=>{if(!this.started||this.paused||this.dead||this.cameraPointer!==null)return;this.cameraPointer=e.pointerId;this.oldX=this.pointerStartX=e.clientX;this.oldY=this.pointerStartY=e.clientY;this.pointerStartTime=performance.now();this.pointerButton=e.button;this.renderer.domElement.setPointerCapture(e.pointerId);this.renderer.domElement.focus()};
@@ -228,7 +268,7 @@ export class Engine{
  };
  private animateCroc(time:number){
   const pose=this.rollTimer>0?rollPose(this.rollTimer):{angle:0,tuck:0,lift:0,coil:0};
-  this.croc.animate(time,this.started?this.speed:.25,this.state.mode==='SWIMMING'||this.state.mode==='DIVING'||!this.started,this.biteTimer/(this.feedingTimer>0?.7:.45),pose.angle,this.turnAmount,this.basking,{gripping:!!this.grabbed,rollTuck:pose.tuck,rollLift:pose.lift,rollCoil:pose.coil,diving:this.diving});
+  this.croc.animate(time,this.started?this.speed:.25,this.state.mode==='SWIMMING'||this.state.mode==='DIVING'||!this.started,this.biteTimer/(this.feedingTimer>0?.7:.45),pose.angle,this.turnAmount,this.basking,{gripping:!!(this.grabbed||this.grabbedRival),rollTuck:pose.tuck,rollLift:pose.lift,rollCoil:pose.coil,diving:this.diving,tailWhip:this.tailWhipTimer>0?Math.sin((this.tailWhipTimer/.42)*Math.PI)*1.5:0});
   this.croc.root.updateMatrixWorld(true);this.croc.skin.skeleton.update();
  }
  private adaptQuality(){if(!this.autoQuality||this.quality<=1||this.renderer instanceof SoftwareRenderer)return;const fps=this.fpsSamples.reduce((a,b)=>a+b,0)/this.fpsSamples.length;if(fps<32)this.slowFrames++;else this.slowFrames=Math.max(0,this.slowFrames-1);if(this.slowFrames>20){this.quality=1;this.renderer.setPixelRatio(1);this.renderer.shadowMap.enabled=false;this.state.quality='Adaptive performance';this.resize();this.slowFrames=0}}
@@ -259,7 +299,7 @@ export class Engine{
   for(const marker of LANDMARKS){if(!this.state.landmarks.includes(marker.id)&&Math.hypot(marker.x-p.x,marker.z-p.z)<23){this.state.landmarks.push(marker.id);this.notify('Discovered '+marker.name+'. '+marker.description)}}
   this.state.x=p.x;this.state.z=p.z;this.state.heading=((-this.croc.root.rotation.y*180/Math.PI)%360+360)%360;this.state.elapsed=this.time;
   const minutes=16*60+42+Math.floor(this.time/20);this.state.time=`${String(Math.floor(minutes/60)%24).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`;
-  this.attackCooldown=Math.max(0,this.attackCooldown-dt);this.biteTimer=Math.max(0,this.biteTimer-dt);this.rollTimer=Math.max(0,this.rollTimer-dt);this.feedingTimer=Math.max(0,this.feedingTimer-dt);this.damageCooldown=Math.max(0,this.damageCooldown-dt);this.messageTimer-=dt;if(this.messageTimer<0)this.state.message='';
+  this.attackCooldown=Math.max(0,this.attackCooldown-dt);this.biteTimer=Math.max(0,this.biteTimer-dt);this.rollTimer=Math.max(0,this.rollTimer-dt);this.feedingTimer=Math.max(0,this.feedingTimer-dt);this.damageCooldown=Math.max(0,this.damageCooldown-dt);this.tailWhipTimer=Math.max(0,this.tailWhipTimer-dt);this.tailWhipCooldown=Math.max(0,this.tailWhipCooldown-dt);this.messageTimer-=dt;if(this.messageTimer<0)this.state.message='';
   this.animateCroc(this.time);
   this.stepAnimals(dt,stalk,swim);this.stepRivals(dt,stalk,swim);this.stepPlovers(dt);this.stepWaders(dt);
   this.audio?.setUnderwater(p.y<water-.7||this.state.mode==='DIVING');
@@ -280,11 +320,31 @@ export class Engine{
    if(this.damageCooldown<=0&&!swim){this.state.health=Math.max(0,this.state.health-4);this.damageCooldown=3;this.sfx(90,.1)}
    if(this.grip<=0){a.flee=10;this.grabbed=null;this.notify('Your grip slipped. Recover stamina and stalk again.')}
   }
+  if(this.grabbedRival){
+   const r=this.grabbedRival;
+   this.grip=Math.max(0,this.grip-dt*(this.rollTimer>0?0:swim?5:12));
+   const mouth=this.croc.head.localToWorld(new T.Vector3(0,-.035,-1.35));
+   if(this.rollTimer>0){
+    r.root.position.copy(mouth);
+    r.root.rotation.z=rollPose(this.rollTimer).angle;
+    this.rollSplash+=dt;
+    if(this.rollSplash>.16&&this.particles.length<16){this.rollSplash=0;this.ripple();this.splash();this.bloodBurst(r.root.position);}
+   }else{
+    r.root.position.lerp(mouth,1-Math.exp(-8*dt));
+   }
+   if(this.grip<=0){this.grabbedRival=null;this.notify('Your jaw clamp broke free.');}
+  }
   if(this.rollVictim&&this.rollTimer<=0){const victim=this.rollVictim;this.rollVictim=null;if(victim===this.grabbed&&victim.alive){victim.hp-=2;if(victim.hp<=0)this.kill(victim)}}
-  this.state.grip=this.grabbed?this.grip:0;this.state.meal=!!this.nearestMeal();this.state.basking=this.basking;this.state.feeding=this.feedingTimer>0;this.state.rolling=this.rollTimer>0;
+  if(this.rollRivalVictim&&this.rollTimer<=0){
+   const victim=this.rollRivalVictim;this.rollRivalVictim=null;
+   victim.hp-=4;this.bloodBurst(victim.root.position);
+   if(victim.hp<=0){this.killRival(victim);this.grabbedRival=null;}
+   else{victim.fleeing=true;victim.velocity=-4.5;this.grabbedRival=null;this.notify(`Death roll crushed ${victim.name}! Rival is retreating.`);}
+  }
+  this.state.grip=this.grabbed?this.grip:this.grabbedRival?this.grip:0;this.state.meal=!!this.nearestMeal();this.state.basking=this.basking;this.state.feeding=this.feedingTimer>0;this.state.rolling=this.rollTimer>0;
   const marker=LANDMARKS.find(m=>m.id===this.waypointId);this.state.waypointDistance=marker?Math.hypot(marker.x-p.x,marker.z-p.z):0;this.state.waypointBearing=marker?angleDelta(this.yaw,Math.atan2(p.x-marker.x,p.z-marker.z))*180/Math.PI:0;
   this.wakeTimer+=dt;if(swim&&Math.abs(this.speed)>1&&this.wakeTimer>.65&&this.particles.length<8){this.wakeTimer=0;this.ripple();if(Math.abs(this.speed)>5.5)this.audio?.playSplash();}
-  if(this.state.health<=0){this.dead=true;this.state.dead=true;this.clearInput();this.grabbed=null;this.rollVictim=null;this.rollTimer=0;this.notify('Your time in the estuary has ended.');this.updateUI()}
+  if(this.state.health<=0){this.dead=true;this.state.dead=true;this.clearInput();this.grabbed=null;this.grabbedRival=null;this.rollVictim=null;this.rollRivalVictim=null;this.rollTimer=0;this.notify('Your time in the estuary has ended.');this.updateUI()}
  }
  private stepAnimals(dt:number,stalk:boolean,swim:boolean){
   const p=this.croc.root.position;let nearby:Animal|undefined,best=26;
@@ -292,41 +352,63 @@ export class Engine{
    const dist=a.root.position.distanceTo(p);
    if(!a.alive){a.respawn-=dt;if(a.servings){a.root.visible=dist<230;a.root.position.y=Math.max(heightAt(a.root.position.x,a.root.position.z)+.7,waterLevel(this.time)-.22)}if(a.respawn<0&&a.home.distanceTo(p)>40){a.alive=true;a.hp=a.kind==='buffalo'?3:1;a.root.visible=true;a.root.position.copy(a.home);a.root.rotation.set(0,a.angle+Math.PI,0);a.velocity=0;a.servings=0;a.awareness=0}continue}
    if(dist<best){best=dist;nearby=a}a.root.visible=dist<250;if(a===this.grabbed)continue;
-   const inDrinkWade=a.kind==='buffalo'&&a.drinking&&heightAt(a.root.position.x,a.root.position.z)>=waterLevel(this.time)-.38;
-   if(!inDrinkWade&&!validHabitat(a.kind,a.root.position.x,a.root.position.z,waterLevel(this.time))){const safe=habitatPoint(a.kind,a.root.position.x,a.root.position.z,waterLevel(this.time));if(!safe){a.root.visible=false;continue}a.root.position.x=safe.x;a.root.position.z=safe.z;a.velocity=0;a.drinking=false;}
+   const inDrinkWade=a.kind==='buffalo'&&a.drinking&&heightAt(a.root.position.x,a.root.position.z)>=waterLevel(this.time)-.42;
+   const isCrossing=a.kind==='buffalo'&&a.crossing;
+   if(!inDrinkWade&&!isCrossing&&!validHabitat(a.kind,a.root.position.x,a.root.position.z,waterLevel(this.time))){const safe=habitatPoint(a.kind,a.root.position.x,a.root.position.z,waterLevel(this.time));if(!safe){a.root.visible=false;continue}a.root.position.x=safe.x;a.root.position.z=safe.z;a.velocity=0;a.drinking=false;a.crossing=false;}
    if(dist>250)continue;
    a.phase+=dt;const fear=a.kind==='buffalo'?(this.diving?5:stalk&&swim?8:20):a.kind==='fish'?(stalk?3.2:7):4;
    const detected=dist<fear&&(Math.abs(this.speed)>(stalk?.8:1.1)||dist<3.5||!swim&&a.kind==='buffalo');a.awareness=clamp(a.awareness+(detected?.8:-.2)*dt,0,1);a.flee=Math.max(0,a.flee-dt);
    const fleeing=a.awareness>.55||a.flee>0;
    if(a.kind==='buffalo'){
-    if(fleeing||detected){a.drinking=false;a.drinkSpot=undefined;}
+    if(fleeing||detected){a.drinking=false;a.drinkSpot=undefined;a.crossing=false;a.crossTarget=undefined;}
     else{
      a.drinkTimer=(a.drinkTimer??(20+((a.phase*7)%25)))-dt;
-     if(a.drinkTimer<=0&&!a.drinking){
-      for(let rad=6;rad<38;rad+=4){
+     if(a.drinkTimer<=0&&!a.drinking&&!a.crossing){
+      for(let rad=6;rad<42;rad+=4){
        const riverX=riverCenter(a.home.z),dir=riverX>a.home.x?0:Math.PI;
        const sx=a.home.x+Math.cos(dir)*rad,sz=a.home.z+Math.sin(dir)*rad*.3;
        const sh=heightAt(sx,sz),wl=waterLevel(this.time);
-       if(sh<wl+.06&&sh>wl-.28){a.drinkSpot={x:sx,z:sz};a.drinking=true;a.drinkTimer=15;break;}
+       if(sh<wl+.06&&sh>wl-.32){a.drinkSpot={x:sx,z:sz};a.drinking=true;a.drinkTimer=16;break;}
       }
      }
-     if(a.drinking&&a.drinkSpot&&a.drinkTimer&&a.drinkTimer<=0){a.drinking=false;a.drinkSpot=undefined;a.drinkTimer=35+((a.phase*13)%30);}
+     if(a.drinking&&a.drinkSpot&&a.drinkTimer&&a.drinkTimer<=0){a.drinking=false;a.drinkSpot=undefined;a.drinkTimer=40+((a.phase*13)%30);}
+     a.crossTimer=(a.crossTimer??(35+((a.phase*7)%45)))-dt;
+     if(a.crossTimer<=0&&!a.drinking&&!a.crossing){
+      const rivX=riverCenter(a.home.z),onEast=a.home.x>rivX;
+      const targetX=rivX+(onEast?-1:1)*(45+((a.phase*6)%18)),targetZ=a.home.z+Math.sin(a.phase)*16;
+      if(validHabitat('buffalo',targetX,targetZ,waterLevel(this.time))){a.crossing=true;a.crossTarget={x:targetX,z:targetZ};}
+      else{a.crossTimer=25;}
+     }
     }
    }
    if(fleeing)a.angle=Math.atan2(a.root.position.x-p.x,a.root.position.z-p.z);
    else if(a.drinking&&a.drinkSpot){
     const toSpot=Math.hypot(a.drinkSpot.x-a.root.position.x,a.drinkSpot.z-a.root.position.z);
     if(toSpot>1.2)a.angle=Math.atan2(a.drinkSpot.x-a.root.position.x,a.drinkSpot.z-a.root.position.z);
-    else{a.velocity=0;a.root.children.forEach(c=>{if(c.position.z<-.5)c.rotation.x=.45;});}
+    else{a.velocity=0;if(Math.random()<.16)this.ripple();}
+   }
+   else if(a.crossing&&a.crossTarget){
+    const toTarget=Math.hypot(a.crossTarget.x-a.root.position.x,a.crossTarget.z-a.root.position.z);
+    a.angle=Math.atan2(a.crossTarget.x-a.root.position.x,a.crossTarget.z-a.root.position.z);
+    if(toTarget<3.5&&heightAt(a.root.position.x,a.root.position.z)>=waterLevel(this.time)-.05){
+     a.crossing=false;a.crossTarget=undefined;a.home.copy(a.root.position);a.crossTimer=70+((a.phase*11)%55);
+    }
    }
    else{const homeDist=a.root.position.distanceTo(a.home);if(homeDist>(a.kind==='fish'?24:18))a.angle+=angleDelta(a.angle,Math.atan2(a.home.x-a.root.position.x,a.home.z-a.root.position.z))*dt;else a.angle+=Math.sin(a.phase*.6)*dt*.24}
-   const velocity=a.kind==='fish'?(fleeing?3.2:.6):a.kind==='buffalo'?(fleeing?3.6:a.drinking?.7:.24):fleeing?.65:.12;a.velocity=approach(a.velocity,a.drinking&&a.drinkSpot&&Math.hypot(a.drinkSpot.x-a.root.position.x,a.drinkSpot.z-a.root.position.z)<=1.2?0:velocity,3,dt);
+   const velocity=a.kind==='fish'?(fleeing?3.2:.6):a.kind==='buffalo'?(fleeing?3.6:a.crossing?1.35:a.drinking?.7:.24):fleeing?.65:.12;
+   a.velocity=approach(a.velocity,a.drinking&&a.drinkSpot&&Math.hypot(a.drinkSpot.x-a.root.position.x,a.drinkSpot.z-a.root.position.z)<=1.2?0:velocity,3,dt);
    const x=a.root.position.x+Math.sin(a.angle)*a.velocity*dt,z=a.root.position.z+Math.cos(a.angle)*a.velocity*dt;
-   const valid=inDrinkWade?(heightAt(x,z)>=waterLevel(this.time)-.38):validHabitat(a.kind,x,z,waterLevel(this.time));
-   if(valid&&Math.abs(x)<HALF-20&&Math.abs(z)<HALF-20){a.root.position.x=x;a.root.position.z=z}else{for(const offset of [Math.PI/3,-Math.PI/3,Math.PI/2,-Math.PI/2,Math.PI]){const alternative=a.angle+offset,ax=a.root.position.x+Math.sin(alternative)*a.velocity*dt,az=a.root.position.z+Math.cos(alternative)*a.velocity*dt;if(validHabitat(a.kind,ax,az,waterLevel(this.time))&&Math.abs(ax)<HALF-20&&Math.abs(az)<HALF-20){a.root.position.x=ax;a.root.position.z=az;a.angle=alternative;break}}}
-   const actualH=heightAt(a.root.position.x,a.root.position.z);a.root.position.y=a.kind==='fish'?Math.max(actualH+.35,waterLevel(this.time)-1.04+Math.sin(a.phase)*.15):actualH;a.root.rotation.y=a.angle+Math.PI;a.root.userData.animate?.(this.time+a.phase,a.velocity);
+   const valid=inDrinkWade?(heightAt(x,z)>=waterLevel(this.time)-.42):isCrossing?true:validHabitat(a.kind,x,z,waterLevel(this.time));
+   if(valid&&Math.abs(x)<HALF-20&&Math.abs(z)<HALF-20){a.root.position.x=x;a.root.position.z=z}else{for(const offset of [Math.PI/3,-Math.PI/3,Math.PI/2,-Math.PI/2,Math.PI]){const alternative=a.angle+offset,ax=a.root.position.x+Math.sin(alternative)*a.velocity*dt,az=a.root.position.z+Math.cos(alternative)*a.velocity*dt;if((isCrossing||validHabitat(a.kind,ax,az,waterLevel(this.time)))&&Math.abs(ax)<HALF-20&&Math.abs(az)<HALF-20){a.root.position.x=ax;a.root.position.z=az;a.angle=alternative;break}}}
+   const actualH=heightAt(a.root.position.x,a.root.position.z);
+   const wl=waterLevel(this.time);
+   const isSwimming=isCrossing&&actualH<wl-.2;
+   a.root.position.y=a.kind==='fish'?Math.max(actualH+.35,wl-1.04+Math.sin(a.phase)*.15):isSwimming?Math.max(actualH+.6,wl-.72):actualH;
+   a.root.rotation.y=a.angle+Math.PI;
+   a.root.userData.animate?.(this.time+a.phase,a.velocity,a.drinking,isSwimming);
+   if(isSwimming&&Math.random()<.08&&this.particles.length<18){this.ripple();}
   }
-  const bearing=nearby?angleDelta(this.croc.root.rotation.y,Math.atan2(p.x-nearby.root.position.x,p.z-nearby.root.position.z)):0;const direction=Math.abs(bearing)<.5?'AHEAD':Math.abs(bearing)>2.5?'BEHIND':bearing>0?'LEFT':'RIGHT';const reach=4.7+this.state.growth*0.02;this.state.canBite=!!nearby&&best<reach&&Math.cos(bearing)*Math.hypot(p.x-nearby.root.position.x,p.z-nearby.root.position.z)/Math.max(.01,best)>.45;this.state.target=this.grabbed?'BUFFALO · IN YOUR GRIP':nearby?`${nearby.kind.toUpperCase()} · ${Math.round(best)} M · ${direction}`:'';this.state.awareness=nearby?.awareness||0;
+  const bearing=nearby?angleDelta(this.croc.root.rotation.y,Math.atan2(p.x-nearby.root.position.x,p.z-nearby.root.position.z)):0;const direction=Math.abs(bearing)<.5?'AHEAD':Math.abs(bearing)>2.5?'BEHIND':bearing>0?'LEFT':'RIGHT';const reach=4.7+this.state.growth*0.02;this.state.canBite=!!nearby&&best<reach&&Math.cos(bearing)*Math.hypot(p.x-nearby.root.position.x,p.z-nearby.root.position.z)/Math.max(.01,best)>.45;this.state.target=this.grabbed?'BUFFALO · IN YOUR GRIP':this.grabbedRival?`${this.grabbedRival.name.toUpperCase()} · JAW LOCK`:nearby?`${nearby.kind.toUpperCase()} · ${Math.round(best)} M · ${direction}`:'';this.state.awareness=nearby?.awareness||0;
  }
  private stepRivals(dt:number,stalk:boolean,swim:boolean){
   const p=this.croc.root.position,water=waterLevel(this.time);

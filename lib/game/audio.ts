@@ -642,6 +642,78 @@ export class JungleAudio {
     osc.stop(now + 0.26);
   }
 
+  /** Powerful tail whip whoosh and heavy water slap */
+  playTailWhip() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    // Sub-bass tail impulse
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(120, now);
+    osc.frequency.exponentialRampToValueAtTime(32, now + 0.28);
+    g.gain.setValueAtTime(0.65, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+    osc.connect(g);
+    g.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.33);
+
+    // Lateral displacement swoosh & slap
+    const bufSize = Math.floor(ctx.sampleRate * 0.26);
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * Math.sin((i / bufSize) * Math.PI);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(800, now);
+    filter.frequency.exponentialRampToValueAtTime(220, now + 0.26);
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.55, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+    src.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+    src.start(now);
+  }
+
+  /** Resounding jaw snap clash between fighting crocodiles */
+  playJawClash() {
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    // High transient jaw snap
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(1400, now);
+    osc.frequency.exponentialRampToValueAtTime(140, now + 0.12);
+    g.gain.setValueAtTime(0.7, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    osc.connect(g);
+    g.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.15);
+
+    // Deep chest resonance thump
+    const sub = ctx.createOscillator();
+    const subGain = ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(95, now);
+    sub.frequency.exponentialRampToValueAtTime(28, now + 0.35);
+    subGain.gain.setValueAtTime(0.8, now);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+    sub.connect(subGain);
+    subGain.connect(this.sfxGain);
+    sub.start(now);
+    sub.stop(now + 0.4);
+  }
+
   dispose() {
     this.isRunning = false;
     if (this.timerId !== null) {
