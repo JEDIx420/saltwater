@@ -1,11 +1,11 @@
 import {heightAt,HALF} from './world';
 
-export type HabitatKind='fish'|'crab'|'buffalo';
+export type HabitatKind='fish'|'crab'|'buffalo'|'monkey';
 // Land animals remain clear of the highest tide, including their footprint.
 export function validHabitat(kind:HabitatKind,x:number,z:number,water=.16){
  if(Math.abs(x)>HALF-22||Math.abs(z)>HALF-22)return false;
  if(kind==='fish')return heightAt(x,z)<water-.65;
- const clearance=kind==='buffalo'?1.7:.45,level=Math.max(.16,water)+.12;
+ const clearance=kind==='buffalo'?1.7:kind==='monkey'?0.8:.45,level=Math.max(.16,water)+.12;
  for(const [dx,dz] of [[0,0],[clearance,0],[-clearance,0],[0,clearance],[0,-clearance]]){
   if(heightAt(x+dx,z+dz)<level)return false;
  }
