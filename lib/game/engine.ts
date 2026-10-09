@@ -27,7 +27,7 @@ export class Engine{
  scene=new T.Scene();camera=new T.PerspectiveCamera(55,1,.1,1100);renderer:T.WebGLRenderer|SoftwareRenderer;state:Snapshot={...initial,landmarks:[]};croc=crocodile();world:ReturnType<typeof makeWorld>;animals:Animal[]=[];rivals:Rival[]=[];plovers:PloverBird[]=[];waders:WaderBird[]=[];
  keys=new Set<string>();touch:{joystick:Joystick;sprint:boolean;stalk:boolean}={joystick:{x:0,y:0},sprint:false,stalk:false};yaw=.42;pitch=.33;zoom=9;sensitivity=1;diving=false;muted=false;quality=2;started=false;paused=false;dead=false;disposed=false;
  private frame=0;private time=0;private ambientTime=0;private last=0;private accumulator=0;private speed=0;private turnAmount=0;private biteTimer=0;private attackCooldown=0;private rollTimer=0;private rollVictim:Animal|null=null;private rollSplash=0;private feedingTimer=0;private messageTimer=5;private damageCooldown=0;private regions=new Set(['MANGROVE REACH']);private uiTimer=0;private fpsSamples:number[]=[];private cameraPointer:number|null=null;private oldX=0;private oldY=0;private pointerStartX=0;private pointerStartY=0;private pointerStartTime=0;private pointerButton=0;private cameraIdle=0;private grabbed:Animal|null=null;private grabbedRival:Rival|null=null;private rollRivalVictim:Rival|null=null;private tailWhipTimer=0;private tailWhipCooldown=0;private grip=0;private basking=false;private birds:{root:T.Group;angle:number;radius:number;y:number;speed:number}[]=[];private eagles:{root:T.Group;angle:number;radius:number;y:number;speed:number;swoop:number}[]=[];private ploverSoundTimer=0;private preyStruggleSoundTimer=0;private screenShake=0;
- private particles:{mesh:T.Mesh;life:number;max:number;velocity?:T.Vector3}[]=[];private audio:JungleAudio|null=null;private sun:T.DirectionalLight;private hemiLight:T.HemisphereLight;private skySun?:T.Mesh;private skyMoon?:T.Mesh;private moonHalo?:T.Mesh;private stars?:T.Points;private fireflies?:{mesh:T.InstancedMesh;data:{x:number;z:number;yBase:number;phase:number;speed:number;pulseSpeed:number;color:T.Color}[]};private fireflyDummy=new T.Object3D();private fireflyColor=new T.Color();private waypointId='';private autoQuality=true;private slowFrames=0;private wakeTimer=0;private saved:ExpeditionSave|null=null;
+ private particles:{mesh:T.Mesh;life:number;max:number;velocity?:T.Vector3}[]=[];private audio:JungleAudio|null=null;private sun:T.DirectionalLight;private hemiLight:T.HemisphereLight;private skySun?:T.Mesh;private skyMoon?:T.Mesh;private moonHalo?:T.Mesh;private stars?:T.Points;private fireflies?:{mesh:T.InstancedMesh;data:{x:number;z:number;yBase:number;phase:number;speed:number;pulseSpeed:number;color:T.Color}[]};private fireflyDummy=new T.Object3D();private fireflyColor=new T.Color();private underwaterParticles?:{mesh:T.InstancedMesh;data:{x:number;y:number;z:number;speed:number;wobble:number;phase:number;size:number}[]};private underwaterDummy=new T.Object3D();private waypointId='';private autoQuality=true;private slowFrames=0;private wakeTimer=0;private saved:ExpeditionSave|null=null;
  constructor(private container:HTMLElement,private map:HTMLCanvasElement,private onUpdate:(s:Snapshot)=>void,private onPause:(p:boolean)=>void){
   try{this.renderer=new T.WebGLRenderer({antialias:true,powerPreference:'high-performance'});}catch{this.renderer=new SoftwareRenderer()}
   const mobile=matchMedia('(pointer:coarse)').matches;
@@ -73,7 +73,7 @@ export class Engine{
   this.scene.add(this.stars);
   for(let i=0;i<15;i++){const root=bird();this.scene.add(root);this.birds.push({root,angle:rng()*Math.PI*2,radius:45+rng()*155,y:18+rng()*25,speed:.03+rng()*.018})}
   for(let i=0;i<4;i++){const root=fishEagle();this.scene.add(root);this.eagles.push({root,angle:rng()*Math.PI*2,radius:65+rng()*135,y:38+rng()*22,speed:.022+rng()*.012,swoop:0})}
-  this.makeFireflies(rng);
+  this.makeFireflies(rng);this.makeUnderwaterPlankton(rng);
  }
  private makeFireflies(rng:()=>number){
   const count=75;
@@ -128,10 +128,56 @@ export class Engine{
   mesh.instanceMatrix.needsUpdate=true;
   if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;
  }
+ private makeUnderwaterPlankton(rng:()=>number){
+  const count=65;
+  const geo=new T.SphereGeometry(0.065,5,4);
+  const mat=new T.MeshBasicMaterial({color:0x88e7d4,transparent:true,opacity:0.62,depthWrite:false,blending:T.AdditiveBlending});
+  const mesh=new T.InstancedMesh(geo,mat,count);
+  mesh.userData.softwareIgnore=true;mesh.visible=false;
+  this.scene.add(mesh);
+  const data=[];
+  const p=this.croc.root.position;
+  for(let i=0;i<count;i++){
+   data.push({
+    x:p.x+(rng()-.5)*36,
+    y:-1-rng()*5,
+    z:p.z+(rng()-.5)*36,
+    speed:0.35+rng()*0.85,
+    wobble:rng()*Math.PI*2,
+    phase:rng()*Math.PI*2,
+    size:0.7+rng()*0.8
+   });
+  }
+  this.underwaterParticles={mesh,data};
+ }
+ private updateUnderwaterPlankton(p:T.Vector3,isUnderwater:boolean,dt:number){
+  if(!this.underwaterParticles)return;
+  if(!isUnderwater){this.underwaterParticles.mesh.visible=false;return;}
+  this.underwaterParticles.mesh.visible=true;
+  const mesh=this.underwaterParticles.mesh;
+  const wl=waterLevel(this.time);
+  for(let i=0;i<this.underwaterParticles.data.length;i++){
+   const pt=this.underwaterParticles.data[i];
+   pt.y+=pt.speed*dt;
+   if(pt.x-p.x>22)pt.x-=44;else if(pt.x-p.x<-22)pt.x+=44;
+   if(pt.z-p.z>22)pt.z-=44;else if(pt.z-p.z<-22)pt.z+=44;
+   const groundH=heightAt(pt.x,pt.z);
+   if(pt.y>wl-.08||pt.y<groundH+.1){
+    pt.y=Math.max(groundH+.2,wl-1.2-Math.random()*4.5);
+   }
+   const swayX=Math.sin(this.ambientTime*1.8+pt.wobble)*0.32;
+   const swayZ=Math.cos(this.ambientTime*1.4+pt.phase)*0.32;
+   this.underwaterDummy.position.set(pt.x+swayX,pt.y,pt.z+swayZ);
+   this.underwaterDummy.scale.setScalar(pt.size*(0.85+Math.sin(this.ambientTime*3+pt.phase)*0.25));
+   this.underwaterDummy.updateMatrix();
+   mesh.setMatrixAt(i,this.underwaterDummy.matrix);
+  }
+  mesh.instanceMatrix.needsUpdate=true;
+ }
  private populate(){
   const rng=seeded(91),start=this.croc.root.position;
-  const schools=[{x:start.x,z:start.z-12},{x:riverCenter(95),z:95},{x:riverCenter(325),z:325},{x:120,z:225},{x:riverCenter(545),z:545},{x:riverCenter(-340),z:-340},{x:riverCenter(-570),z:-570},{x:-210,z:-710},{x:270,z:-765}];
-  for(let i=0;i<81;i++){const school=schools[Math.floor(i/9)],z=i<3?start.z-6-i*3:school.z+(rng()-.5)*24,x=i<3?start.x+(i-1)*1.8:school.x+(rng()-.5)*17;if(heightAt(x,z)<-.5)this.spawn('fish',x,z,rng,i)}
+  const schools=[{x:start.x,z:start.z-12},{x:riverCenter(95),z:95},{x:riverCenter(325),z:325},{x:120,z:225},{x:riverCenter(545),z:545},{x:riverCenter(-340),z:-340},{x:riverCenter(-570),z:-570},{x:-210,z:-710},{x:270,z:-765},{x:-140,z:-720},{x:160,z:355},{x:175,z:480}];
+  for(let i=0;i<108;i++){const school=schools[Math.floor(i/9)],z=i<3?start.z-6-i*3:school.z+(rng()-.5)*24,x=i<3?start.x+(i-1)*1.8:school.x+(rng()-.5)*17;if(heightAt(x,z)<-.5)this.spawn('fish',x,z,rng,i)}
   for(let i=0;i<32;i++){let x=0,z=0;for(let j=0;j<100;j++){z=rng()*1320-560;x=riverCenter(z)+(rng()<.5?-1:1)*(38+rng()*22);const h=heightAt(x,z);if(h>.08&&h<3.5)break}this.spawn('crab',x,z,rng,i)}
   for(let i=0;i<16;i++){const z=i<4?30+i*6:i<12?450+(i-4)*8:125+(i-12)*10;const x=riverCenter(z)+(i<4?-1:1)*(47+rng()*10);this.spawn('buffalo',x,z,rng,i)}for(let i=0;i<6;i++)this.spawn('buffalo',-325-rng()*80,20+rng()*90,rng,i+16);
   for(let i=0;i<14;i++){const z=-380+i*70+(rng()-.5)*35;const rivX=riverCenter(z);const side=i%2===0?1:-1;const x=rivX+side*(38+rng()*22);this.spawn('monkey',x,z,rng,i)}
@@ -153,7 +199,7 @@ export class Engine{
    ['shark','Bull Shark',riverCenter(-580),-580,38,8,4],
    ['shark','Bull Shark',riverCenter(-240),-240,38,8,4],
    ['shark','Channel Shark',riverCenter(260),260,38,9,4],
-   ['shark','Tidal Shark',-240,-720,44,10,4],
+   ['shark','Tidal Shark',-140,-720,44,10,4],
    ['hippo','Bull Hippo',135,240,36,18,6],
    ['hippo','River Hippo',155,310,34,16,6],
    ['hippo','Lagoon Hippo',-285,75,34,16,6],
@@ -468,6 +514,7 @@ export class Engine{
   this.world.waterMat.uniforms.sun.value.copy(activeLightDir);
 
   this.updateFireflies(p,timeOfDay);
+  this.updateUnderwaterPlankton(p,under||this.diving,dt);
 
   this.birds.forEach((b,i)=>{b.angle+=dt*b.speed;b.root.position.set(Math.cos(b.angle)*b.radius+this.croc.root.position.x,b.y,Math.sin(b.angle)*b.radius+this.croc.root.position.z);b.root.rotation.y=-b.angle;b.root.userData.animate?.(this.ambientTime+i)});
   this.eagles.forEach((eg,i)=>{eg.angle+=dt*eg.speed;eg.swoop+=dt;const swoopY=Math.sin(eg.swoop*.4+i)*12;eg.root.position.set(Math.cos(eg.angle)*eg.radius+p.x,eg.y+swoopY,Math.sin(eg.angle)*eg.radius+p.z);eg.root.rotation.y=-eg.angle;eg.root.userData.animate?.(this.ambientTime+i*2,Math.sin(eg.swoop*.4)*.4);});
@@ -754,7 +801,12 @@ export class Engine{
      this.notify(`${r.name} defends territory with lethal aggression!`);
     }
     if(r.kind==='shark'){
-     if(dist>9&&!r.chargeTimer){
+     const playerInWater=heightAt(p.x,p.z)<water-.45;
+     if(!playerInWater){
+      const shoreToPlayer=Math.atan2(p.x-r.root.position.x,p.z-r.root.position.z);
+      r.angle+=angleDelta(r.angle,shoreToPlayer+Math.PI*0.5)*dt*2.2;
+      r.velocity=approach(r.velocity,2.8,3,dt);
+     }else if(dist>9&&!r.chargeTimer){
       r.angle+=angleDelta(r.angle,Math.atan2(p.x-r.root.position.x,p.z-r.root.position.z)+.35)*dt*2;
       r.velocity=approach(r.velocity,3.6,3,dt);
      }else{
@@ -790,9 +842,32 @@ export class Engine{
     r.velocity=approach(r.velocity,r.kind==='shark'?1.8:r.kind==='snake'?0.6:r.kind==='croc'?.8:.5,2,dt);
    }
    const nx=r.root.position.x+Math.sin(r.angle)*r.velocity*dt,nz=r.root.position.z+Math.cos(r.angle)*r.velocity*dt;
-   if(Math.abs(nx)<HALF-25&&Math.abs(nz)<HALF-25){r.root.position.x=nx;r.root.position.z=nz;}
+   const nextH=heightAt(nx,nz);
+   const minDepth=r.isBoss?1.15:.75;
+   if(r.kind==='shark'&&nextH>water-minDepth){
+    const leftH=heightAt(r.root.position.x+Math.sin(r.angle-1.1)*4,r.root.position.z+Math.cos(r.angle-1.1)*4);
+    const rightH=heightAt(r.root.position.x+Math.sin(r.angle+1.1)*4,r.root.position.z+Math.cos(r.angle+1.1)*4);
+    const homeAngle=Math.atan2(r.home.x-r.root.position.x,r.home.z-r.root.position.z);
+    if(leftH<rightH&&leftH<water-minDepth)r.angle-=2.2*dt;
+    else if(rightH<water-minDepth)r.angle+=2.2*dt;
+    else r.angle+=angleDelta(r.angle,homeAngle)*3*dt;
+    r.velocity*=.35;
+   }else if(Math.abs(nx)<HALF-25&&Math.abs(nz)<HALF-25){
+    r.root.position.x=nx;r.root.position.z=nz;
+   }
    const actualH=heightAt(r.root.position.x,r.root.position.z);
-   r.root.position.y=r.kind==='shark'?Math.max(actualH+.35,water-.75+Math.sin(r.phase)*.1):r.kind==='croc'?actualH<-.3?water-.12:actualH+.035:r.kind==='snake'?Math.max(actualH+.08,water-.15):Math.max(actualH,water-.25);
+   if(r.kind==='shark'){
+    const targetY=water-(r.isBoss?1.1:.75)+Math.sin(r.phase*(attacking?2:1))*.12;
+    r.root.position.y=Math.min(water-.18,Math.max(actualH+.35,targetY));
+    if(actualH>water-.65){
+     const toHome=new T.Vector3(r.home.x-r.root.position.x,0,r.home.z-r.root.position.z).normalize();
+     r.root.position.x+=toHome.x*3.5*dt;
+     r.root.position.z+=toHome.z*3.5*dt;
+     r.angle=Math.atan2(toHome.x,toHome.z);
+    }
+   }else{
+    r.root.position.y=r.kind==='croc'?actualH<-.3?water-.12:actualH+.035:r.kind==='snake'?Math.max(actualH+.08,water-.15):Math.max(actualH,water-.25);
+   }
    r.root.rotation.y=r.angle+Math.PI;
    if(r.kind==='hippo')r.root.userData.animate?.(this.time+r.phase,r.velocity,inside&&dist<25,attacking);
    else if(r.kind==='shark')r.root.userData.animate?.(this.time+r.phase,r.velocity,attacking);
