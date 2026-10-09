@@ -59,5 +59,39 @@ test('Night celestial atmosphere introduces vibrant moonlight, starry canopy and
 test('Fireflies swarm generates bioluminescent particles with breathing pulse and night illumination',()=>{const e=game();e.fireflyDummy=new T.Object3D();e.fireflyColor=new T.Color();e.makeFireflies(seeded(42));assert.ok(e.fireflies);assert.equal(e.fireflies.data.length,75);assert.equal(e.fireflies.mesh.count,75);e.updateFireflies(e.croc.root.position,'day');assert.equal(e.fireflies.mesh.visible,false);e.ambientTime=2.5;e.updateFireflies(e.croc.root.position,'night');assert.equal(e.fireflies.mesh.visible,true);const m=new T.Matrix4();e.fireflies.mesh.getMatrixAt(0,m);assert.ok(Number.isFinite(m.elements[12]));assert.ok(Number.isFinite(m.elements[13]));assert.ok(Number.isFinite(m.elements[14]));});
 test('Sharks are strictly bounded to deep water channels and never swim onto dry land',()=>{const e=game();e.populateRivals();const sharks=e.rivals.filter(r=>r.kind==='shark');assert.ok(sharks.length>=4);for(const s of sharks){const h=heightAt(s.home.x,s.home.z);assert.ok(h<-2.5,`${s.name} at (${s.home.x},${s.home.z}) has shallow home ${h}`);}const tidal=sharks.find(s=>s.name==='Tidal Shark');assert.ok(tidal);tidal.root.position.set(-200,-4,-740);tidal.angle=Math.atan2(-270-(-200),-785-(-740));tidal.velocity=4.5;for(let i=0;i<120;i++){e.time+=1/60;e.stepRivals(1/60,false,true);assert.ok(tidal.root.position.y<=0,`Shark hovered above water: y=${tidal.root.position.y}`);const currentH=heightAt(tidal.root.position.x,tidal.root.position.z);assert.ok(currentH<0.1,`Shark climbed onto land: h=${currentH}`);}});
 test('Underwater landscape generates lush seagrass beds, coral reefs, sea fans, and tube sponges',()=>{const grass=seagrassGeometry(),coral=coralGeometry(),fan=fanCoralGeometry(),sponge=tubeSpongeGeometry();assert.ok(grass.attributes.position.count>0&&grass.attributes.color);assert.ok(coral.attributes.position.count>0&&coral.attributes.color);assert.ok(fan.attributes.position.count>0&&fan.attributes.color);assert.ok(sponge.attributes.position.count>0&&sponge.attributes.color);const w=new EstuaryWorld(new T.Scene());w.update(-160,-720,0,2);const coastalChunk=[...w.chunks.values()].find(c=>c.coralMesh||c.seagrassMesh);assert.ok(coastalChunk);assert.ok(coastalChunk.coralMesh||coastalChunk.seagrassMesh);w.dispose();const e=game();e.underwaterDummy=new T.Object3D();e.makeUnderwaterPlankton(seeded(77));assert.ok(e.underwaterParticles);assert.equal(e.underwaterParticles.data.length,65);e.updateUnderwaterPlankton(e.croc.root.position,false,1/60);assert.equal(e.underwaterParticles.mesh.visible,false);e.updateUnderwaterPlankton(e.croc.root.position,true,1/60);assert.equal(e.underwaterParticles.mesh.visible,true);});
+test('Big snake has continuous serpentine mesh geometry with dynamic coloration and fluid undulation',()=>{
+ const snake=bigSnake();
+ const meshes=[];
+ snake.traverse(child=>{if(child.isMesh)meshes.push(child);});
+ const bodyMesh=meshes.find(m=>m.geometry.attributes.position.count>=400);
+ assert.ok(bodyMesh,'Snake does not contain a high-resolution continuous body mesh');
+ assert.ok(bodyMesh.geometry.attributes.color,'Continuous body mesh is missing vertex colors for dorsal scales and belly plates');
+ assert.ok(bodyMesh.geometry.index&&bodyMesh.geometry.index.count>2000,'Body mesh index buffer is incomplete');
+ const v0=bodyMesh.geometry.attributes.position.getX(0);
+ snake.userData.animate(1.0,1.2,false);
+ const v1=bodyMesh.geometry.attributes.position.getX(0);
+ assert.notEqual(v0,v1,'Snake body vertices did not animate dynamically');
+ snake.userData.animate(2.0,1.5,true);
+ const titan=titanoboaSnake();
+ assert.ok(titan.scale.x>1.5&&titan.scale.z>1.5,'Titanoboa snake model is not scaled to boss proportions');
+});
+test('Boss near snapshot provides accurate HP and distance data for boss fight HUD',()=>{
+ const e=game();
+ const boss=rivalCroc();
+ const r={root:boss.root,kind:'croc',name:'Sovereign Brutus',bossTitle:'Swamp Tyrant',isBoss:true,alive:true,hp:100,maxHp:100,home:new T.Vector3(0,0,0),territoryRadius:60,angle:0,phase:0,respawn:0,velocity:0,servings:0,warningTimer:0,attackCooldown:0,staggerTimer:0,unlocked:true};
+ e.rivals.push(r);
+ e.croc.root.position.set(0,-.12,15);
+ r.root.position.set(0,-.12,0);
+ e.stepRivals(1/60,false,true);
+ assert.ok(e.state.bossNear,'bossNear was not populated when near boss');
+ assert.equal(e.state.bossNear.name,'Sovereign Brutus');
+ assert.equal(e.state.bossNear.title,'Swamp Tyrant');
+ assert.equal(e.state.bossNear.hp,100);
+ assert.equal(e.state.bossNear.maxHp,100);
+ assert.equal(e.state.bossNear.dist,15);
+ r.hp=60;
+ e.stepRivals(1/60,false,true);
+ assert.equal(e.state.bossNear.hp,60);
+});
 console.log(JSON.stringify({passed:results.length,failed:0,tests:results},null,2));
 

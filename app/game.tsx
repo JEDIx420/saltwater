@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useRef,useState,type PointerEvent as ReactPointerEvent} from 'react';
-import {Volume2,VolumeX,Pause,Play,Settings2,Maximize,Compass,Map,Heart,Wind,Zap,Fish,ChevronRight,RotateCcw,MousePointer2,HelpCircle,Waves,Leaf,Sun,BookOpen,X,Check,Navigation,Save,Target,ChevronsUp,Anchor,Shield} from 'lucide-react';
+import {Volume2,VolumeX,Pause,Play,Settings2,Maximize,Compass,Map,Heart,Wind,Zap,Fish,ChevronRight,RotateCcw,MousePointer2,HelpCircle,Waves,Leaf,Sun,BookOpen,X,Check,Navigation,Save,Target,ChevronsUp,Anchor,Shield,Skull,Crosshair} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {Slider} from '@/components/ui/slider';
@@ -47,7 +47,30 @@ export default function Game(){
   {s.started&&!s.dead&&<>
    <div className="compass"><span>{Math.round(s.heading)}°</span><div><span>W</span><i/><span>N</span><b>◇</b><span>E</span><i/><span>S</span></div></div>
    <button className="field-notes" onClick={()=>open('journal')} aria-label="Open expedition milestones"><div className="eyebrow"><span className="short-line"/> YOUR EXPEDITION <ChevronRight size={13}/></div><h2>{activeGoal.name}</h2><p>{activeGoal.detail}</p><div className="goal-progress"><activeGoal.icon size={16}/><span>{activeGoal.value} / {activeGoal.max}{activeGoal.max===100?' GROWTH':''}</span><div className="small-track"><i style={{width:`${activeGoal.value/activeGoal.max*100}%`}}/></div></div><div className="growth-label"><Leaf size={13}/><span>{s.title.toUpperCase()}</span><b>{s.lengthFt} FT · {s.lengthM} M</b></div></button>
-   {s.bossNear&&<div className="boss-banner" role="alert"><Shield size={13}/><span>APEX BOSS</span><b>{s.bossNear.title} · {s.bossNear.name} ({s.bossNear.dist}m)</b></div>}
+   {s.bossNear&&(()=>{
+    const bossHpPct=Math.max(0,Math.min(100,(s.bossNear.hp/s.bossNear.maxHp)*100));
+    return <div className={`boss-hud ${s.bossNear.dist<28?'in-combat':''}`} role="region" aria-label={`Apex Boss ${s.bossNear.name}`}>
+     <div className="boss-hud-header">
+      <div className="boss-hud-badge"><Skull size={13}/><span>APEX BOSS</span></div>
+      <div className="boss-hud-title">
+       <span className="boss-title-prefix">{s.bossNear.title.toUpperCase()}</span>
+       <span className="boss-title-name">{s.bossNear.name}</span>
+      </div>
+      <div className="boss-hud-dist"><Crosshair size={12}/><span>{s.bossNear.dist}m</span></div>
+     </div>
+     <div className="boss-bar-wrap">
+      <div className="boss-bar-track" role="progressbar" aria-label={`${s.bossNear.name} Health`} aria-valuenow={s.bossNear.hp} aria-valuemin={0} aria-valuemax={s.bossNear.maxHp}>
+       <div className="boss-bar-fill" style={{width:`${bossHpPct}%`}}/>
+       <div className="boss-bar-glow" style={{left:`${bossHpPct}%`}}/>
+       <div className="boss-bar-segments"><i/><i/><i/><i/></div>
+      </div>
+      <div className="boss-hp-numbers">
+       <span>{s.bossNear.hp} / {s.bossNear.maxHp} HP</span>
+       <b>{Math.round(bossHpPct)}%</b>
+      </div>
+     </div>
+    </div>;
+   })()}
    {s.waypoint&&<div className="waypoint"><Navigation size={14} style={{transform:`rotate(${-s.waypointBearing-45}deg)`}}/><span>{s.waypoint}</span><b>{Math.round(s.waypointDistance)} m</b></div>}
    <div className={`prey-hint ${s.grip>0?'grappling':''}`}>{s.grip>0?<><Anchor size={15}/><span>{s.rolling?'DEATH ROLL IN PROGRESS':s.target.includes('JAW LOCK')?'RIVAL JAW LOCK':'HOLDING BUFFALO'}</span><div className="grip-track"><i style={{width:`${s.grip}%`}}/></div><kbd>R</kbd><span>Roll</span></>:s.meal?<><Fish size={15}/><span>{s.feeding?'Feeding…':'Your catch is ready'}</span><kbd>E</kbd><span>Feed</span></>:s.basking?<><Sun size={15}/><span>Basking · plovers cleaning teeth · healing</span></>:s.target?<><span className={`target-dot ${s.awareness>.55?'alert':''}`}/><span>{s.target}</span><span className="awareness">{s.canBite?'BITE NOW':s.awareness>.55?'FLEEING':s.awareness>.2?'ALERT':'UNAWARE'}</span></>:s.rivalNear?<><span className="target-dot alert"/><span>{s.rivalNear}</span><span className="awareness alert">CAUTION</span></>:<span className="quiet">Move with the river.</span>}</div>
    <section className="survival-hud" aria-label="Survival statistics"><div className="croc-id"><span>CROCODYLUS POROSUS</span><span>{s.basking?'BASKING':s.mode} · {(s.speed*3.6).toFixed(1)} KM/H</span></div><div className="meters">{meters.map(m=><div className={`meter ${m.color} ${m.value<20?'low':''}`} key={m.name}><div className="meter-label"><m.icon size={14}/><span>{m.name}</span><b>{Math.round(m.value)}<small>%</small></b></div><div className="meter-track" role="progressbar" aria-label={m.name} aria-valuenow={Math.round(m.value)} aria-valuemin={0} aria-valuemax={100}><i style={{width:`${m.value}%`}}/></div></div>)}</div>{s.mode==='DIVING'&&<div className="air-meter"><Wind size={14}/><span>AIR</span><div className="meter-track" role="progressbar" aria-label="Oxygen" aria-valuenow={Math.round(s.air)} aria-valuemin={0} aria-valuemax={100}><i style={{width:`${s.air}%`}}/></div><b>{Math.round(s.air)}%</b><span>{s.depth.toFixed(1)} M</span></div>}</section>

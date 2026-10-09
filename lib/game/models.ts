@@ -71,31 +71,141 @@ export function bigSnake(){
  }
  const tongue=curveTube(head,redMat,[[0,-.04,-.32],[0,-.04,-.52],[.03,-.04,-.62]],.012);
  curveTube(head,redMat,[[0,-.04,-.52],[-.03,-.04,-.62]],.012);
- const bodyNodes:T.Mesh[]=[];
- const segCount=16;
- for(let i=0;i<segCount;i++){
-  const t=i/(segCount-1);
-  const z=-1.8+i*.38;
-  const radius=.24*(1-t*.55);
-  const seg=ell(g,skinMat,[0,.22,z],[radius,radius*.85,radius*1.2]);
-  bodyNodes.push(seg);
+
+ const rings=32,sides=12;
+ const vertCount=rings*(sides+1);
+ const positions=new Float32Array(vertCount*3);
+ const colors=new Float32Array(vertCount*3);
+ const indices:number[]=[];
+
+ const darkGreen=new T.Color(0x2d4826),lightGreen=new T.Color(0x456b3b);
+ const bellyColor=new T.Color(0xbab984),blotchColor=new T.Color(0x1a2e18);
+
+ for(let r=0;r<rings;r++){
+  for(let s=0;s<=sides;s++){
+   const idx=r*(sides+1)+s;
+   const angle=(s/sides)*Math.PI*2;
+   const sy=Math.sin(angle);
+   let c:T.Color;
+   if(sy<-.2){
+    c=bellyColor.clone().multiplyScalar(.9+.1*Math.cos(angle));
+   }else{
+    const blotch=Math.sin(r*.95)*Math.cos(angle*2);
+    c=(blotch>.38?blotchColor:darkGreen).clone().lerp(lightGreen,.5+.5*sy);
+    c.multiplyScalar(.92+.08*Math.sin(r*2.3+s*1.7));
+   }
+   colors[idx*3]=c.r;
+   colors[idx*3+1]=c.g;
+   colors[idx*3+2]=c.b;
+  }
  }
+
+ for(let r=0;r<rings-1;r++){
+  for(let s=0;s<sides;s++){
+   const a=r*(sides+1)+s;
+   const b=a+(sides+1);
+   indices.push(a,b,a+1,b,b+1,a+1);
+  }
+ }
+
+ const bodyGeo=new T.BufferGeometry();
+ bodyGeo.setAttribute('position',new T.BufferAttribute(positions,3));
+ bodyGeo.setAttribute('color',new T.BufferAttribute(colors,3));
+ bodyGeo.setIndex(indices);
+
+ const bodyMat=new T.MeshStandardMaterial({
+  vertexColors:true,
+  roughness:.52,
+  metalness:.12,
+  side:T.DoubleSide
+ });
+ const bodyMesh=new T.Mesh(bodyGeo,bodyMat);
+ bodyMesh.castShadow=true;
+ bodyMesh.receiveShadow=true;
+ g.add(bodyMesh);
+
+ const spine:{x:number;y:number;z:number;w:number;h:number}[]=[];
+ for(let r=0;r<rings;r++)spine.push({x:0,y:.22,z:0,w:.2,h:.18});
+
  g.userData.animate=(time:number,speed:number,striking=false)=>{
-  tongue.position.z=Math.sin(time*12)*.08;
+  tongue.position.z=Math.sin(time*14)*.09;
+
+  for(let r=0;r<rings;r++){
+   const t=r/(rings-1);
+   const z=-1.9+t*5.2;
+   let x=0,y=.22;
+   if(striking){
+    if(t<.24){
+     x=Math.sin(t*Math.PI*4.2)*.24;
+     y=.46-t*.82;
+    }else{
+     const wave=Math.sin(time*3-(t-.24)*6);
+     x=wave*.46;
+     y=.22+Math.sin(time*2-t*3)*.03;
+    }
+   }else{
+    const wave=Math.sin(time*4.2-t*6.2);
+    x=wave*(.38+t*.16)*Math.min(speed+.4,1.2);
+    y=.20+Math.sin(time*2.1-t*3.1)*.03;
+   }
+
+   let w:.2,h:.18;
+   if(t<.08){
+    const u=t/.08;
+    w=(.16+u*.08) as any;
+    h=(.12+u*.07) as any;
+   }else if(t<.55){
+    const u=(t-.08)/.47;
+    w=(.24+Math.sin(u*Math.PI)*.04) as any;
+    h=(.19+Math.sin(u*Math.PI)*.03) as any;
+   }else{
+    const u=(t-.55)/.45;
+    w=(.24*(1-u*.92)) as any;
+    h=(.19*(1-u*.92)) as any;
+   }
+   spine[r]={x,y,z,w,h};
+  }
+
+  const posArr=bodyGeo.attributes.position.array as Float32Array;
+  for(let r=0;r<rings;r++){
+   const cur=spine[r];
+   const prev=spine[Math.max(0,r-1)];
+   const next=spine[Math.min(rings-1,r+1)];
+   const dx=next.x-prev.x;
+   const dz=next.z-prev.z;
+   const angle=Math.atan2(dx,dz);
+   const cosA=Math.cos(angle);
+   const sinA=Math.sin(angle);
+
+   for(let s=0;s<=sides;s++){
+    const phi=(s/sides)*Math.PI*2;
+    const cosPhi=Math.cos(phi);
+    const sinPhi=Math.sin(phi);
+
+    const lx=cosPhi*cur.w;
+    const ly=sinPhi*cur.h;
+
+    const vx=cur.x+lx*cosA;
+    const vy=cur.y+ly;
+    const vz=cur.z-lx*sinA;
+
+    const idx=(r*(sides+1)+s)*3;
+    posArr[idx]=vx;
+    posArr[idx+1]=vy;
+    posArr[idx+2]=vz;
+   }
+  }
+  bodyGeo.attributes.position.needsUpdate=true;
+  bodyGeo.computeVertexNormals();
+
   if(striking){
    head.position.set(0,.55,-2.7);
-   head.rotation.x=-.35;
+   head.rotation.set(-.35,0,0);
   }else{
-   head.position.x=Math.sin(time*4.5)*.32;
-   head.position.y=.35+Math.sin(time*2.2)*.08;
-   head.rotation.y=Math.cos(time*4.5)*.28;
-   head.rotation.x=0;
+   const angle0=Math.atan2(spine[1].x-spine[0].x,spine[1].z-spine[0].z);
+   head.position.set(spine[0].x,spine[0].y+.08,spine[0].z-.28);
+   head.rotation.set(Math.sin(time*2.2)*.05,angle0,0);
   }
-  bodyNodes.forEach((node,i)=>{
-   const wave=Math.sin(time*4-i*.55);
-   node.position.x=wave*(.38+i*.02);
-   node.position.y=.22+Math.abs(Math.sin(time*2-i*.3))*.04;
-  });
  };
  return g;
 }
