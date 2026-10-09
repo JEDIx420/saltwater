@@ -27,7 +27,7 @@ export class Engine{
  scene=new T.Scene();camera=new T.PerspectiveCamera(55,1,.1,1100);renderer:T.WebGLRenderer|SoftwareRenderer;state:Snapshot={...initial,landmarks:[]};croc=crocodile();world:ReturnType<typeof makeWorld>;animals:Animal[]=[];rivals:Rival[]=[];plovers:PloverBird[]=[];waders:WaderBird[]=[];
  keys=new Set<string>();touch:{joystick:Joystick;sprint:boolean;stalk:boolean}={joystick:{x:0,y:0},sprint:false,stalk:false};yaw=.42;pitch=.33;zoom=9;sensitivity=1;diving=false;muted=false;quality=2;started=false;paused=false;dead=false;disposed=false;
  private frame=0;private time=0;private ambientTime=0;private last=0;private accumulator=0;private speed=0;private turnAmount=0;private biteTimer=0;private attackCooldown=0;private rollTimer=0;private rollVictim:Animal|null=null;private rollSplash=0;private feedingTimer=0;private messageTimer=5;private damageCooldown=0;private regions=new Set(['MANGROVE REACH']);private uiTimer=0;private fpsSamples:number[]=[];private cameraPointer:number|null=null;private oldX=0;private oldY=0;private pointerStartX=0;private pointerStartY=0;private pointerStartTime=0;private pointerButton=0;private cameraIdle=0;private grabbed:Animal|null=null;private grabbedRival:Rival|null=null;private rollRivalVictim:Rival|null=null;private tailWhipTimer=0;private tailWhipCooldown=0;private grip=0;private basking=false;private birds:{root:T.Group;angle:number;radius:number;y:number;speed:number}[]=[];private eagles:{root:T.Group;angle:number;radius:number;y:number;speed:number;swoop:number}[]=[];private ploverSoundTimer=0;private preyStruggleSoundTimer=0;private screenShake=0;
- private particles:{mesh:T.Mesh;life:number;max:number;velocity?:T.Vector3}[]=[];private audio:JungleAudio|null=null;private sun:T.DirectionalLight;private hemiLight:T.HemisphereLight;private skySun?:T.Mesh;private waypointId='';private autoQuality=true;private slowFrames=0;private wakeTimer=0;private saved:ExpeditionSave|null=null;
+ private particles:{mesh:T.Mesh;life:number;max:number;velocity?:T.Vector3}[]=[];private audio:JungleAudio|null=null;private sun:T.DirectionalLight;private hemiLight:T.HemisphereLight;private skySun?:T.Mesh;private skyMoon?:T.Mesh;private moonHalo?:T.Mesh;private stars?:T.Points;private fireflies?:{mesh:T.InstancedMesh;data:{x:number;z:number;yBase:number;phase:number;speed:number;pulseSpeed:number;color:T.Color}[]};private fireflyDummy=new T.Object3D();private fireflyColor=new T.Color();private waypointId='';private autoQuality=true;private slowFrames=0;private wakeTimer=0;private saved:ExpeditionSave|null=null;
  constructor(private container:HTMLElement,private map:HTMLCanvasElement,private onUpdate:(s:Snapshot)=>void,private onPause:(p:boolean)=>void){
   try{this.renderer=new T.WebGLRenderer({antialias:true,powerPreference:'high-performance'});}catch{this.renderer=new SoftwareRenderer()}
   const mobile=matchMedia('(pointer:coarse)').matches;
@@ -51,9 +51,82 @@ export class Engine{
  private makeSky(){
   this.skySun=new T.Mesh(new T.SphereGeometry(16,12,10),new T.MeshBasicMaterial({color:0xffeecb,fog:false}));
   this.skySun.position.set(-720,360,-780);this.skySun.userData.softwareIgnore=true;this.scene.add(this.skySun);
+  this.skyMoon=new T.Mesh(new T.SphereGeometry(22,16,12),new T.MeshBasicMaterial({color:0xebf5ff,fog:false}));
+  this.skyMoon.userData.softwareIgnore=true;this.skyMoon.visible=false;this.scene.add(this.skyMoon);
+  this.moonHalo=new T.Mesh(new T.RingGeometry(22,62,24),new T.MeshBasicMaterial({color:0x80b4ec,side:T.DoubleSide,transparent:true,opacity:0.38,fog:false,depthWrite:false,blending:T.AdditiveBlending}));
+  this.moonHalo.userData.softwareIgnore=true;this.moonHalo.visible=false;this.scene.add(this.moonHalo);
   const rng=seeded(19);
+  const starCount=480,starPos:number[]=[],starCols:number[]=[];
+  const starPalette=[new T.Color(0xffffff),new T.Color(0xbbe0ff),new T.Color(0xfff1cf),new T.Color(0x99d5ff)];
+  for(let i=0;i<starCount;i++){
+   const azim=rng()*Math.PI*2,elev=0.08+rng()*0.84;
+   const rad=860;
+   starPos.push(Math.cos(azim)*Math.cos(elev)*rad,Math.sin(elev)*rad,Math.sin(azim)*Math.cos(elev)*rad);
+   const c=starPalette[Math.floor(rng()*starPalette.length)].clone().multiplyScalar(0.7+rng()*0.3);
+   starCols.push(c.r,c.g,c.b);
+  }
+  const starGeo=new T.BufferGeometry();
+  starGeo.setAttribute('position',new T.Float32BufferAttribute(starPos,3));
+  starGeo.setAttribute('color',new T.Float32BufferAttribute(starCols,3));
+  this.stars=new T.Points(starGeo,new T.PointsMaterial({size:3.2,vertexColors:true,transparent:true,opacity:0,fog:false,depthWrite:false}));
+  this.stars.userData.softwareIgnore=true;
+  this.scene.add(this.stars);
   for(let i=0;i<15;i++){const root=bird();this.scene.add(root);this.birds.push({root,angle:rng()*Math.PI*2,radius:45+rng()*155,y:18+rng()*25,speed:.03+rng()*.018})}
   for(let i=0;i<4;i++){const root=fishEagle();this.scene.add(root);this.eagles.push({root,angle:rng()*Math.PI*2,radius:65+rng()*135,y:38+rng()*22,speed:.022+rng()*.012,swoop:0})}
+  this.makeFireflies(rng);
+ }
+ private makeFireflies(rng:()=>number){
+  const count=75;
+  const geo=new T.SphereGeometry(0.16,6,5);
+  const mat=new T.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.95,fog:false,depthWrite:false});
+  const mesh=new T.InstancedMesh(geo,mat,count);
+  mesh.userData.softwareIgnore=true;mesh.visible=false;
+  this.scene.add(mesh);
+  const colors=[new T.Color(0xccff00),new T.Color(0x76ff03),new T.Color(0xffea3a),new T.Color(0x64ffda),new T.Color(0xeeff41)];
+  const data=[];
+  const p=this.croc.root.position;
+  for(let i=0;i<count;i++){
+   const dist=6+rng()*44,ang=rng()*Math.PI*2;
+   data.push({
+    x:p.x+Math.cos(ang)*dist,
+    z:p.z+Math.sin(ang)*dist,
+    yBase:0.4+rng()*1.5,
+    phase:rng()*Math.PI*2,
+    speed:0.7+rng()*1.4,
+    pulseSpeed:2.5+rng()*2.5,
+    color:colors[i%colors.length]
+   });
+  }
+  this.fireflies={mesh,data};
+ }
+ private updateFireflies(p:T.Vector3,timeOfDay:string){
+  if(!this.fireflies)return;
+  const nightFactor=timeOfDay==='night'?1.0:timeOfDay==='dusk'?0.75:timeOfDay==='dawn'?0.4:0.0;
+  if(nightFactor<=0){this.fireflies.mesh.visible=false;return;}
+  this.fireflies.mesh.visible=true;
+  const mesh=this.fireflies.mesh;
+  const wl=waterLevel(this.time);
+  for(let i=0;i<this.fireflies.data.length;i++){
+   const f=this.fireflies.data[i];
+   if(f.x-p.x>52)f.x-=96;else if(f.x-p.x<-52)f.x+=96;
+   if(f.z-p.z>52)f.z-=96;else if(f.z-p.z<-52)f.z+=96;
+   const driftX=Math.sin(this.ambientTime*f.speed+f.phase)*2.3;
+   const driftZ=Math.cos(this.ambientTime*f.speed*0.88+f.phase)*2.3;
+   const groundH=heightAt(f.x+driftX,f.z+driftZ);
+   const surface=Math.max(groundH,wl);
+   const bobY=Math.sin(this.ambientTime*1.7+f.phase)*0.55;
+   const posY=surface+0.45+f.yBase+bobY;
+   const pulse=Math.pow(Math.sin(this.ambientTime*f.pulseSpeed+f.phase)*0.5+0.5,2.4);
+   const scale=(0.75+pulse*1.15)*nightFactor;
+   this.fireflyDummy.position.set(f.x+driftX,posY,f.z+driftZ);
+   this.fireflyDummy.scale.setScalar(scale);
+   this.fireflyDummy.updateMatrix();
+   mesh.setMatrixAt(i,this.fireflyDummy.matrix);
+   this.fireflyColor.copy(f.color).multiplyScalar(0.65+pulse*0.9);
+   mesh.setColorAt(i,this.fireflyColor);
+  }
+  mesh.instanceMatrix.needsUpdate=true;
+  if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;
  }
  private populate(){
   const rng=seeded(91),start=this.croc.root.position;
@@ -322,11 +395,32 @@ export class Engine{
   const sunElev=Math.sin(solarAngle);
   const sunAzim=Math.cos(solarAngle);
   const p=this.croc.root.position;
+  const skyDist=750;
 
   if(this.skySun){
-   const skyDist=750;
    this.skySun.position.set(p.x-sunAzim*skyDist,Math.max(-100,sunElev*skyDist),p.z-450);
-   (this.skySun.material as T.MeshBasicMaterial).color.set(sunElev>0?0xffeecb:0xc7dbf5);
+   this.skySun.visible=sunElev>-0.12;
+   (this.skySun.material as T.MeshBasicMaterial).color.set(sunElev>0?0xffeecb:0xffaa66);
+  }
+
+  const moonElev=-sunElev;
+  const moonAzim=-sunAzim;
+  if(this.skyMoon&&this.moonHalo){
+   this.skyMoon.position.set(p.x-moonAzim*skyDist,Math.max(-100,moonElev*skyDist),p.z-450);
+   this.moonHalo.position.copy(this.skyMoon.position);
+   this.moonHalo.lookAt(this.camera.position);
+   const moonVisible=moonElev>-0.12;
+   this.skyMoon.visible=moonVisible;
+   this.moonHalo.visible=moonVisible;
+   const moonFade=T.MathUtils.clamp((moonElev+0.1)*3,0,1);
+   (this.moonHalo.material as T.MeshBasicMaterial).opacity=0.42*moonFade;
+  }
+
+  if(this.stars){
+   this.stars.position.set(p.x,0,p.z);
+   const starOpacity=timeOfDay==='night'?0.95:timeOfDay==='dusk'?0.55:timeOfDay==='dawn'?0.3:0.0;
+   (this.stars.material as T.PointsMaterial).opacity=starOpacity;
+   (this.stars.material as T.PointsMaterial).size=3.2+Math.sin(this.ambientTime*2.5)*0.5;
   }
 
   const under=this.camera.position.y<waterLevel(this.time)-.08,fog=this.scene.fog as T.FogExp2;
@@ -334,11 +428,11 @@ export class Engine{
    fog.color.set(0x28685f);fog.density=.028;
   }else{
    if(timeOfDay==='night'){
-    fog.color.set(0x0c1524);fog.density=.0042;
+    fog.color.set(0x13263b);fog.density=.0020;
    }else if(timeOfDay==='dawn'){
     fog.color.set(0xd3a18a);fog.density=season==='monsoon'?.0055:.0045;
    }else if(timeOfDay==='dusk'){
-    fog.color.set(0xc46950);fog.density=.0038;
+    fog.color.set(0xc46950);fog.density=.0032;
    }else{
     fog.color.set(season==='monsoon'?0x93b4ba:0xa1c7d1);
     fog.density=season==='monsoon'?.0042:.0032;
@@ -358,13 +452,22 @@ export class Engine{
     this.hemiLight.intensity=(timeOfDay==='dawn'||timeOfDay==='dusk'?1.7:2.35)*(season==='monsoon'?0.85:1.0);
    }
   }else{
-   this.sun.position.set(p.x+sunAzim*160,Math.max(25,-sunElev*180),p.z+50);
-   this.sun.color.set(0x658bb8);this.sun.intensity=0.72;
+   this.sun.position.set(p.x-moonAzim*160,Math.max(35,moonElev*180),p.z+50);
+   this.sun.color.set(0xa0c6f2);this.sun.intensity=1.65;
    if(this.hemiLight){
-    this.hemiLight.color.set(0x18263e);this.hemiLight.groundColor.set(0x0e171b);this.hemiLight.intensity=0.95;
+    this.hemiLight.color.set(0x2d527c);
+    this.hemiLight.groundColor.set(0x183c2e);
+    this.hemiLight.intensity=1.65;
    }
   }
   this.sun.target.position.copy(p);
+
+  const activeLightDir=sunElev>0
+   ?new T.Vector3(-sunAzim,Math.max(0.1,sunElev),-0.6).normalize()
+   :new T.Vector3(-moonAzim,Math.max(0.1,moonElev),0.6).normalize();
+  this.world.waterMat.uniforms.sun.value.copy(activeLightDir);
+
+  this.updateFireflies(p,timeOfDay);
 
   this.birds.forEach((b,i)=>{b.angle+=dt*b.speed;b.root.position.set(Math.cos(b.angle)*b.radius+this.croc.root.position.x,b.y,Math.sin(b.angle)*b.radius+this.croc.root.position.z);b.root.rotation.y=-b.angle;b.root.userData.animate?.(this.ambientTime+i)});
   this.eagles.forEach((eg,i)=>{eg.angle+=dt*eg.speed;eg.swoop+=dt;const swoopY=Math.sin(eg.swoop*.4+i)*12;eg.root.position.set(Math.cos(eg.angle)*eg.radius+p.x,eg.y+swoopY,Math.sin(eg.angle)*eg.radius+p.z);eg.root.rotation.y=-eg.angle;eg.root.userData.animate?.(this.ambientTime+i*2,Math.sin(eg.swoop*.4)*.4);});
@@ -775,7 +878,7 @@ export class Engine{
  dispose(){
   this.disposed=true;cancelAnimationFrame(this.frame);window.removeEventListener('resize',this.resize);window.removeEventListener('keydown',this.keyDown);window.removeEventListener('keyup',this.keyUp);window.removeEventListener('blur',this.blur);document.removeEventListener('visibilitychange',this.visibility);
   const el=this.renderer.domElement;el.removeEventListener('pointerdown',this.pointerDown);el.removeEventListener('pointerup',this.pointerUp);el.removeEventListener('pointercancel',this.pointerCancel);el.removeEventListener('lostpointercapture',this.pointerCancel);el.removeEventListener('pointermove',this.pointerMove);el.removeEventListener('wheel',this.wheel);el.removeEventListener('contextmenu',this.contextMenu);el.removeEventListener('webglcontextlost',this.contextLost);
-  const geos=new Set<T.BufferGeometry>(),mats=new Set<T.Material>(),textures=new Set<T.Texture>();this.scene.traverse(o=>{if(o instanceof T.Mesh){geos.add(o.geometry);(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{mats.add(m);Object.values(m).forEach(v=>{if(v instanceof T.Texture)textures.add(v)})})}});this.world.dispose();geos.forEach(g=>g.dispose());mats.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());this.croc.skin.skeleton.dispose();this.renderer.dispose();el.remove();this.audio?.dispose();
+  const geos=new Set<T.BufferGeometry>(),mats=new Set<T.Material>(),textures=new Set<T.Texture>();this.scene.traverse(o=>{if(o instanceof T.Mesh||o instanceof T.Points){geos.add(o.geometry);(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{mats.add(m);Object.values(m).forEach(v=>{if(v instanceof T.Texture)textures.add(v)})})}});this.world.dispose();geos.forEach(g=>g.dispose());mats.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());this.croc.skin.skeleton.dispose();this.renderer.dispose();el.remove();this.audio?.dispose();
  }
 }
 (Engine.prototype as any).rivals = [];
