@@ -1,6 +1,6 @@
 import * as T from 'three';
 import {makeWorld,heightAt,riverCenter,biomeAt,seeded,HALF,WORLD_SIZE,waterLevel,LANDMARKS} from './world';
-import {crocodile,fish,crab,buffalo,bird,bullShark,hippo,plover,wadingBird,rivalCroc,monkey,bigSnake,fishEagle,megatoothShark,goliathHippo,titanoboaSnake,sovereignBrutus} from './models';
+import {crocodile,fish,crab,buffalo,bird,bullShark,hippo,plover,wadingBird,rivalCroc,monkey,fishEagle,megatoothShark,goliathHippo,dreadmawBehemoth,sovereignBrutus} from './models';
 import {habitatPoint,validHabitat} from './habitat';
 import {ROLL_DURATION,rollPose} from './motion';
 import {SoftwareRenderer} from './software-renderer';
@@ -19,7 +19,7 @@ export function crocLength(growth:number){
 export type Snapshot={health:number;hunger:number;stamina:number;air:number;warmth:number;mode:string;biome:string;speed:number;depth:number;kills:number;fishCaught:number;buffaloCaught:number;growth:number;distance:number;regions:number;landmarks:string[];elapsed:number;time:string;heading:number;fps:number;message:string;target:string;canBite:boolean;awareness:number;grip:number;meal:boolean;basking:boolean;dead:boolean;started:boolean;paused:boolean;x:number;z:number;drawCalls:number;renderer:string;waypoint:string;waypointDistance:number;waypointBearing:number;canContinue:boolean;feeding:boolean;rolling:boolean;quality:string;title:string;rivalNear:string;bossNear?:{name:string;title:string;hp:number;maxHp:number;dist:number}|null;lengthFt?:string;lengthM?:string;timeOfDay?:string;season?:string};
 export const initial:Snapshot={health:100,hunger:70,stamina:100,air:100,warmth:72,mode:'SURFACE',biome:'MANGROVE REACH',speed:0,depth:0,kills:0,fishCaught:0,buffaloCaught:0,growth:0,distance:0,regions:1,landmarks:[],elapsed:0,time:'06:30',heading:0,fps:0,message:'The estuary is yours.',target:'',canBite:false,awareness:0,grip:0,meal:false,basking:false,dead:false,started:false,paused:false,x:0,z:-38,drawCalls:0,renderer:'WebGL',waypoint:'',waypointDistance:0,waypointBearing:0,canContinue:false,feeding:false,rolling:false,quality:'Balanced',title:'Yearling (5.0 ft)',rivalNear:'',bossNear:null,lengthFt:'5.0',lengthM:'1.5',timeOfDay:'day',season:'dry'};
 export type Animal={root:T.Group;kind:'fish'|'crab'|'buffalo'|'monkey';alive:boolean;hp:number;home:T.Vector3;angle:number;phase:number;respawn:number;flee:number;awareness:number;velocity:number;servings:number;drinkTimer?:number;drinking?:boolean;drinkSpot?:{x:number;z:number};crossing?:boolean;crossTarget?:{x:number;z:number};crossTimer?:number;struggling?:boolean;alarmTimer?:number};
-export type RivalKind='croc'|'shark'|'hippo'|'snake';
+export type RivalKind='croc'|'shark'|'hippo';
 export type Rival={root:T.Group;kind:RivalKind;name:string;alive:boolean;hp:number;maxHp:number;home:T.Vector3;territoryRadius:number;angle:number;phase:number;respawn:number;velocity:number;servings:number;warningTimer:number;attackCooldown:number;fleeing?:boolean;chargeTimer?:number;circling?:boolean;isBoss?:boolean;bossTitle?:string;minGrowth?:number;unlocked?:boolean;staggerTimer?:number};
 export type PloverBird={root:T.Group;landed:boolean;hopTimer:number};
 export type WaderBird={root:T.Group;home:T.Vector3;fleeing:boolean;fleeTimer:number};
@@ -203,24 +203,23 @@ export class Engine{
    ['hippo','Bull Hippo',135,240,36,18,6],
    ['hippo','River Hippo',155,310,34,16,6],
    ['hippo','Lagoon Hippo',-285,75,34,16,6],
-   ['snake','Giant River Python',riverCenter(390)+22,390,38,10,4],
-   ['snake','Emerald Anaconda',riverCenter(-490)-22,-490,42,12,4],
+   ['croc','Delta Stalker',riverCenter(390)+22,390,38,10,4],
+   ['hippo','Crag Hippo',riverCenter(-490)-22,-490,42,12,4],
    // Scaling Legendary Apex Bosses
    ['shark','Abyssal Megatooth',riverCenter(-710),-710,65,22,8,true,'Ocean Apex Predator',35],
    ['hippo','Goliath Patriarch',150,360,52,28,8,true,'Lagoon Crag-Jaw',50],
-   ['snake','Titanoboa Prime',riverCenter(-530)-25,-530,58,24,8,true,'Ancient River Phantom',65],
+   ['croc','Dreadmaw Behemoth',riverCenter(-530)-25,-530,58,24,8,true,'Ancient River Leviathan',65],
    ['croc','Sovereign Brutus',riverCenter(540),540,68,36,10,true,'42ft Swamp Tyrant',80],
   ];
   for(const [kind,name,x,z,territoryRadius,maxHp,servings,isBoss,bossTitle,minGrowth] of rivalDefs){
-   const root=(isBoss&&kind==='croc')?sovereignBrutus().root:
+   const root=(isBoss&&kind==='croc'&&name==='Dreadmaw Behemoth')?dreadmawBehemoth().root:
+              (isBoss&&kind==='croc')?sovereignBrutus().root:
               (isBoss&&kind==='shark')?megatoothShark():
               (isBoss&&kind==='hippo')?goliathHippo():
-              (isBoss&&kind==='snake')?titanoboaSnake():
               kind==='croc'?rivalCroc().root:
-              kind==='shark'?bullShark():
-              kind==='snake'?bigSnake():hippo();
+              kind==='shark'?bullShark():hippo();
    const water=0,h=heightAt(x,z);
-   const y=kind==='shark'?Math.max(h+.5,water-.75):kind==='croc'?Math.max(h+.05,water-.12):kind==='snake'?Math.max(h+.08,water-.15):Math.max(h,water-.25);
+   const y=kind==='shark'?Math.max(h+.5,water-.75):kind==='croc'?Math.max(h+.05,water-.12):Math.max(h,water-.25);
    root.position.set(x,y,z);
    root.rotation.y=rng()*Math.PI*2;
    const unlocked=!isBoss||this.state.growth>=(minGrowth||0);
@@ -353,7 +352,7 @@ export class Engine{
    }else{
     const dmg=foundRival.isBoss?20:foundRival.kind==='hippo'?15:foundRival.kind==='croc'?12:foundRival.kind==='shark'?10:8;
     this.state.health=Math.max(0,this.state.health-dmg);
-    this.damageCooldown=2.2;if(foundRival.kind==='croc')this.audio?.playCrocRoar();else if(foundRival.kind==='hippo')this.audio?.playHippoGrunt();else if(foundRival.kind==='snake')this.audio?.playSnakeHiss();
+    this.damageCooldown=2.2;if(foundRival.kind==='croc')this.audio?.playCrocRoar();else if(foundRival.kind==='hippo')this.audio?.playHippoGrunt();
     if(foundRival.hp<=0)this.killRival(foundRival);
     else this.notify(`The ${foundRival.name} retaliates with vicious force! HP ${foundRival.hp}/${foundRival.maxHp}. Grow larger or maneuver!`);
    }
@@ -639,7 +638,7 @@ export class Engine{
    if(!r.alive||r===this.grabbedRival)continue;
    const dx=p.x-r.root.position.x,dz=p.z-r.root.position.z;
    const dist=Math.hypot(dx,dz);
-   const rivalRadius=r.isBoss?(r.kind==='croc'?3.8:r.kind==='hippo'?3.2:r.kind==='shark'?3.2:2.6):r.kind==='croc'?2.4:r.kind==='hippo'?2.1:r.kind==='snake'?1.8:1.8;
+   const rivalRadius=r.isBoss?(r.kind==='croc'?3.8:r.kind==='hippo'?3.2:3.2):r.kind==='croc'?2.4:r.kind==='hippo'?2.1:1.8;
    const minSep=playerRadius+rivalRadius;
    if(dist<minSep&&dist>0.001){
     const overlap=minSep-dist;
@@ -797,7 +796,6 @@ export class Engine{
      r.warningTimer=4.5;
      if(r.kind==='croc')this.audio?.playCrocRoar();
      else if(r.kind==='hippo')this.audio?.playHippoGrunt();
-     else if(r.kind==='snake')this.audio?.playSnakeHiss();
      this.notify(`${r.name} defends territory with lethal aggression!`);
     }
     if(r.kind==='shark'){
@@ -813,9 +811,6 @@ export class Engine{
       r.angle=Math.atan2(p.x-r.root.position.x,p.z-r.root.position.z);
       r.velocity=approach(r.velocity,r.isBoss?6.8:5.8,4,dt);
      }
-    }else if(r.kind==='snake'){
-     r.angle=Math.atan2(p.x-r.root.position.x,p.z-r.root.position.z);
-     r.velocity=approach(r.velocity,dist<9?(r.isBoss?6.2:5.2):2.8,4,dt);
     }else if(r.kind==='hippo'){
      r.angle=Math.atan2(p.x-r.root.position.x,p.z-r.root.position.z);
      r.velocity=approach(r.velocity,r.isBoss?5.2:4.4,3,dt);
@@ -839,7 +834,7 @@ export class Engine{
    }else{
     if(homeDist>18)r.angle+=angleDelta(r.angle,Math.atan2(r.home.x-r.root.position.x,r.home.z-r.root.position.z))*dt*.9;
     else r.angle+=Math.sin(r.phase*.4)*dt*.2;
-    r.velocity=approach(r.velocity,r.kind==='shark'?1.8:r.kind==='snake'?0.6:r.kind==='croc'?.8:.5,2,dt);
+    r.velocity=approach(r.velocity,r.kind==='shark'?1.8:r.kind==='croc'?.8:.5,2,dt);
    }
    const nx=r.root.position.x+Math.sin(r.angle)*r.velocity*dt,nz=r.root.position.z+Math.cos(r.angle)*r.velocity*dt;
    const nextH=heightAt(nx,nz);
@@ -866,12 +861,11 @@ export class Engine{
      r.angle=Math.atan2(toHome.x,toHome.z);
     }
    }else{
-    r.root.position.y=r.kind==='croc'?actualH<-.3?water-.12:actualH+.035:r.kind==='snake'?Math.max(actualH+.08,water-.15):Math.max(actualH,water-.25);
+    r.root.position.y=r.kind==='croc'?actualH<-.3?water-.12:actualH+.035:Math.max(actualH,water-.25);
    }
    r.root.rotation.y=r.angle+Math.PI;
    if(r.kind==='hippo')r.root.userData.animate?.(this.time+r.phase,r.velocity,inside&&dist<25,attacking);
    else if(r.kind==='shark')r.root.userData.animate?.(this.time+r.phase,r.velocity,attacking);
-   else if(r.kind==='snake')r.root.userData.animate?.(this.time+r.phase,r.velocity,attacking);
    else r.root.userData.animate?.(this.time+r.phase,r.velocity,swim,attacking?1:0);
   }
   this.state.rivalNear=rivalNear;
@@ -934,7 +928,7 @@ export class Engine{
  private drawMap(){
   const c=this.map.getContext('2d');if(!c||!this.baseMap)return;const w=this.map.width;c.clearRect(0,0,w,w);c.drawImage(this.baseMap,0,0,w,w);c.strokeStyle='#d4d7bd25';c.lineWidth=1;for(let i=1;i<4;i++){c.beginPath();c.moveTo(w*i/4,0);c.lineTo(w*i/4,w);c.moveTo(0,w*i/4);c.lineTo(w,w*i/4);c.stroke()}
   for(const a of this.animals){if(a.alive&&a.root.position.distanceTo(this.croc.root.position)<120){c.fillStyle=a.kind==='buffalo'?'#e4b56d':a.kind==='monkey'?'#c89552':'#aadfcf';const x=(a.root.position.x/WORLD_SIZE+.5)*w,y=(a.root.position.z/WORLD_SIZE+.5)*w;c.beginPath();c.arc(x,y,a.kind==='buffalo'?2:a.kind==='monkey'?1.5:1,0,7);c.fill()}}
-  for(const r of (this.rivals||[])){if(r.alive&&r.root.position.distanceTo(this.croc.root.position)<160){c.fillStyle=r.kind==='shark'?'#4aa3df':r.kind==='hippo'?'#9b59b6':r.kind==='snake'?'#48a048':'#e04b36';const x=(r.root.position.x/WORLD_SIZE+.5)*w,y=(r.root.position.z/WORLD_SIZE+.5)*w;c.beginPath();c.arc(x,y,r.kind==='croc'?3.5:r.kind==='snake'?2.6:2.5,0,7);c.fill()}}
+  for(const r of (this.rivals||[])){if(r.alive&&r.root.position.distanceTo(this.croc.root.position)<160){c.fillStyle=r.kind==='shark'?'#4aa3df':r.kind==='hippo'?'#9b59b6':'#e04b36';const x=(r.root.position.x/WORLD_SIZE+.5)*w,y=(r.root.position.z/WORLD_SIZE+.5)*w;c.beginPath();c.arc(x,y,r.kind==='croc'?3.5:2.5,0,7);c.fill()}}
   for(const l of LANDMARKS){const x=(l.x/WORLD_SIZE+.5)*w,y=(l.z/WORLD_SIZE+.5)*w;c.fillStyle=this.waypointId===l.id?'#ffdd98':this.state.landmarks.includes(l.id)?'#e7d8b0':'#cfdbc18a';c.fillRect(x-2,y-2,4,4);if(this.waypointId===l.id){c.strokeStyle='#ffdd98';c.beginPath();c.arc(x,y,6,0,Math.PI*2);c.stroke()}}
   const x=(this.state.x/WORLD_SIZE+.5)*w,y=(this.state.z/WORLD_SIZE+.5)*w;c.save();c.translate(x,y);c.rotate(-this.croc.root.rotation.y);c.fillStyle='#fff3d0';c.shadowColor='#000';c.shadowBlur=4;c.beginPath();c.moveTo(0,-6);c.lineTo(4,5);c.lineTo(0,3);c.lineTo(-4,5);c.closePath();c.fill();c.restore();
  }

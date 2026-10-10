@@ -823,35 +823,7 @@ export class JungleAudio {
     });
   }
 
-  /** Menacing giant snake hiss & lunge rattle */
-  playSnakeHiss() {
-    if (!this.ctx || !this.sfxGain || this.isMuted) return;
-    const ctx = this.ctx;
-    const now = ctx.currentTime;
 
-    const bufSize = Math.floor(ctx.sampleRate * 0.45);
-    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < bufSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.2));
-    }
-    const noise = ctx.createBufferSource();
-    noise.buffer = buf;
-
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'highpass';
-    filter.frequency.setValueAtTime(3200, now);
-    filter.frequency.linearRampToValueAtTime(1800, now + 0.25);
-
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.42, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
-
-    noise.connect(filter);
-    filter.connect(g);
-    g.connect(this.sfxGain);
-    noise.start(now);
-  }
 
   /** Crushing impact when an aggressive rival strikes the player */
   playRivalStrike() {
