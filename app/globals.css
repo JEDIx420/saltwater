@@ -55,8 +55,10 @@
 .start-links { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; }
 .start-links .estuary-support, .start-links .text-button { margin-top: 0; }
 @media (max-height: 450px) and (orientation: landscape) {
-  .intro .start-screen { top: max(72px, 18%); }
+  .intro .start-screen { top: max(60px, 15%); }
   .start-screen .edition { margin-bottom: 10px; }
+  .start-screen h1 { font-size: clamp(52px, 7.5vw, 64px); }
   .start-screen h1 > span { margin-top: 8px; }
+  .start-screen > p { margin: 8px 0 12px; }
   .start-links { margin-top: 8px; }
 }
