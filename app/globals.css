@@ -35,3 +35,28 @@
 .boss-hp-numbers b{color:#ffe4b5;font-weight:700}
 @media(max-width:700px){.boss-hud{top:62px;padding:6px 10px;width:calc(100vw - 24px)}.boss-hud-title .boss-title-name{font-size:11px}.boss-bar-track{height:7px}}
 @media(prefers-reduced-motion:reduce){button,.meter-track i{transition:none}}
+.estuary-support {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #e4cf9e66;
+  border-radius: 6px;
+  color: #f6e6c1;
+  background: #142c29e8;
+  font-size: 12px;
+  text-decoration: none;
+  margin-top: 10px;
+  width: fit-content;
+}
+.estuary-support:hover { background: #2b4339; }
+.estuary-support:focus-visible { outline: 2px solid #f6e6c1; outline-offset: 3px; }
+.start-links { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; }
+.start-links .estuary-support, .start-links .text-button { margin-top: 0; }
+@media (max-height: 450px) and (orientation: landscape) {
+  .intro .start-screen { top: max(72px, 18%); }
+  .start-screen .edition { margin-bottom: 10px; }
+  .start-screen h1 > span { margin-top: 8px; }
+  .start-links { margin-top: 8px; }
+}
